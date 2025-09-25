@@ -17,9 +17,7 @@ AGENTS.md
 docs/
 
 # AI guidance files (local use only)
-specs/*/plan.md
-specs/*/tasks.md
-specs/*/contracts/
+specs/
 
 # Build artifacts
 build/
