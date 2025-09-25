@@ -1,0 +1,38 @@
+# Git ignore for Keyhunt-CUDA
+
+# Tool directories
+.claude/
+.codex/
+.specify/
+
+# Temporary directories
+benchmarks/
+digests/
+logs/
+reports/
+telemetry/
+
+# Documentation
+AGENTS.md
+docs/
+
+# AI guidance files (local use only)
+specs/*/plan.md
+specs/*/tasks.md
+specs/*/contracts/
+
+# Build artifacts
+build/
+*.o
+*.so
+*.dylib
+
+# IDE files
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS files
+.DS_Store
+Thumbs.db
