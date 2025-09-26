@@ -9,11 +9,11 @@ enum class DigestStatus {
     kOk,
     kMismatch,
     kIoError,
-    kNotImplemented,
+    kParseError,
 };
 
 struct DigestVerificationResult {
-    DigestStatus status{DigestStatus::kNotImplemented};
+    DigestStatus status{DigestStatus::kParseError};
     std::string message;
 };
 

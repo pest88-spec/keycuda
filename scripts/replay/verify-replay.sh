@@ -3,6 +3,7 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
+DIGEST_BIN="${REPO_ROOT}/bin/puzzle71_digest"
 
 if [[ $# -lt 2 ]]; then
   echo "Usage: $(basename "$0") <manifest> <telemetry-jsonl>" >&2
@@ -22,6 +23,9 @@ if [[ ! -f "$TELEMETRY" ]]; then
   exit 3
 fi
 
-echo "Replay verification stub" >&2
-# TODO(T027A): Parse manifest and telemetry, compute digests, compare against baseline.
-exit 0
+# TODO: hook into real digest verifier binary once implemented.
+if [[ -x "$DIGEST_BIN" ]]; then
+  "$DIGEST_BIN" --manifest "$MANIFEST" --telemetry "$TELEMETRY"
+else
+  echo "Replay verification stub — digest tool missing" >&2
+fi

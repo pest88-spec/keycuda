@@ -2,6 +2,8 @@ cmake_minimum_required(VERSION 3.24)
 
 project(Puzzle71Solver VERSION 0.1.0 LANGUAGES CXX CUDA)
 
+option(SECP256K1_AVAILABLE "Enable bitcoin-core/secp256k1 parity checks" ON)
+
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CUDA_STANDARD 17)
@@ -31,17 +33,92 @@ set(PUZZLE71_CORE_SOURCES
   src/main.cpp
   src/solver.cpp
   src/puzzle71_kernel.cu
+  src/core/uint256.cpp
+  src/checkpoint_manifest.cpp
+  src/utils/digest_verifier.cpp
+  src/utils/checkpoint_crypto.cpp
+  src/utils/telemetry_logger.cpp
+  src/utils/prometheus_exporter.cpp
+  src/scheduler/range_scheduler.cpp
+  src/scan/puzzle71_partition.cpp
+  src/services/device_metrics.cpp
+  src/config/puzzle71_config.cpp
+  src/crypto/secp256k1_adapter.cpp
+  src/KeyhuntCore/gpu/device_buffers.cpp
+  src/KeyhuntCore/adapters/bitcrack/conversions.cpp
+  src/KeyhuntCore/adapters/bitcrack/keyfinder_adapter.cpp
 )
 
 add_executable(Puzzle71Solver ${PUZZLE71_CORE_SOURCES})
-target_include_directories(Puzzle71Solver PRIVATE src src/models src/utils src/config src/scheduler src/scan src/services src/compare)
+set_target_properties(Puzzle71Solver PROPERTIES ENABLE_EXPORTS ON)
+target_include_directories(Puzzle71Solver PRIVATE
+  src
+  src/models
+  src/utils
+  src/config
+  src/scheduler
+  src/scan
+  src/services
+  src/compare
+  src/core
+  third_party/VanitySearch/GPU
+  third_party/CudaBrainSecp/GPU
+  third_party/BitCrack
+  third_party/BitCrack/AddressUtil
+  third_party/BitCrack/CryptoUtil
+  third_party/BitCrack/KeyFinderLib
+  third_party/BitCrack/CudaKeySearchDevice
+  third_party/BitCrack/cudaMath
+  third_party/BitCrack/cudaUtil
+  third_party/BitCrack/util
+  third_party/BitCrack/Logger
+  third_party/BitCrack/secp256k1lib
+)
+
+if(SECP256K1_AVAILABLE)
+  target_compile_definitions(Puzzle71Solver PRIVATE SECP256K1_AVAILABLE=1)
+  set(SECP256K1_BUILD_TESTS OFF CACHE BOOL "" FORCE)
+  set(SECP256K1_BUILD_BENCHMARK OFF CACHE BOOL "" FORCE)
+  set(SECP256K1_BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
+  add_subdirectory(third_party/bitcoin-core-secp256k1)
+  target_link_libraries(Puzzle71Solver PRIVATE secp256k1)
+else()
+  target_compile_definitions(Puzzle71Solver PRIVATE SECP256K1_AVAILABLE=0)
+endif()
+
 set_target_properties(Puzzle71Solver PROPERTIES CUDA_ARCHITECTURES "75;86;89")
 
 find_package(OpenSSL REQUIRED)
-target_link_libraries(Puzzle71Solver PRIVATE OpenSSL::SSL OpenSSL::Crypto)
+target_link_libraries(Puzzle71Solver PRIVATE OpenSSL::SSL OpenSSL::Crypto nlohmann_json::nlohmann_json)
+
+set(BITCRACK_SOURCES
+  third_party/BitCrack/CudaKeySearchDevice/CudaAtomicList.cu
+  third_party/BitCrack/CudaKeySearchDevice/CudaDeviceKeys.cu
+  third_party/BitCrack/CudaKeySearchDevice/CudaHashLookup.cu
+  third_party/BitCrack/CudaKeySearchDevice/cudabridge.cu
+  third_party/BitCrack/CudaKeySearchDevice/CudaKeySearchDevice.cu
+  third_party/BitCrack/CudaKeySearchDevice/CudaKeySearchDevice.cpp
+  third_party/BitCrack/cudaUtil/cudaUtil.cpp
+  third_party/BitCrack/AddressUtil/Base58.cpp
+  third_party/BitCrack/AddressUtil/hash.cpp
+  third_party/BitCrack/CryptoUtil/hash.cpp
+  third_party/BitCrack/CryptoUtil/ripemd160.cpp
+  third_party/BitCrack/CryptoUtil/sha256.cpp
+  third_party/BitCrack/CryptoUtil/Rng.cpp
+  third_party/BitCrack/util/util.cpp
+  third_party/BitCrack/Logger/Logger.cpp
+  third_party/BitCrack/secp256k1lib/secp256k1.cpp
+)
+
+target_sources(Puzzle71Solver PRIVATE ${BITCRACK_SOURCES})
 
 # Enable testing / GoogleTest via FetchContent
 include(FetchContent)
+FetchContent_Declare(
+  nlohmann_json
+  URL https://github.com/nlohmann/json/releases/download/v3.11.3/json.tar.xz
+)
+FetchContent_MakeAvailable(nlohmann_json)
 set(gtest_force_shared_crt ON CACHE BOOL "" FORCE)
 FetchContent_Declare(
   googletest

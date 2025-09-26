@@ -24,10 +24,7 @@ struct KeyspaceRange {
     std::string end_hex;
 };
 
-inline constexpr KeyspaceRange kDefaultKeyspace{
-    .start_hex = "0x400000000000000000",
-    .end_hex   = "0x7fffffffffffffffff",
-};
+inline const KeyspaceRange kDefaultKeyspace{"0x400000000000000000", "0x7fffffffffffffffff"};
 
 [[nodiscard]] inline bool IsCanonicalTargetAddress(std::string_view address) noexcept {
     return address == kTargetAddress;

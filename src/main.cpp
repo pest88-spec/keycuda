@@ -23,12 +23,16 @@ struct ParsedArgs {
     bool dry_run{false};
     bool enable_checkpoint{false};
     std::optional<std::string> prometheus_dir;
+    std::optional<std::string> telemetry_dir;
+    std::optional<std::string> replay_manifest;
+    std::string luck_file{"luck.txt"};
 };
 
 void PrintUsage() {
     std::cerr << "Usage: Puzzle71Solver --keyspace <start:end> --target-address <addr> --operator-id <id> "
                  "--operator-purpose <purpose> [--dry-run] [--enable-checkpoint] "
-                 "[--prometheus-export <dir>]" << std::endl;
+                 "[--prometheus-export <dir>] [--telemetry-jsonl <dir>] [--replay-manifest <path>] "
+                 "[--luck-file <path>]" << std::endl;
 }
 
 ParsedArgs ParseArguments(int argc, char* argv[]) {
@@ -36,6 +40,23 @@ ParsedArgs ParseArguments(int argc, char* argv[]) {
     std::unordered_map<std::string, std::string> kv;
     for (int i = 1; i < argc; ++i) {
         std::string arg = argv[i];
+        struct ValueBinder {
+            int& index;
+            int argc;
+            char** argv;
+            void operator()(const std::string& flag, std::optional<std::string>& target) {
+                if (index + 1 >= argc) {
+                    throw std::runtime_error(flag + " requires a value");
+                }
+                target = argv[++index];
+            }
+            void operator()(const std::string& flag, std::string& target) {
+                if (index + 1 >= argc) {
+                    throw std::runtime_error(flag + " requires a value");
+                }
+                target = argv[++index];
+            }
+        } requires_value{i, argc, argv};
         if (arg == "--dry-run") {
             parsed.dry_run = true;
             continue;
@@ -45,13 +66,22 @@ ParsedArgs ParseArguments(int argc, char* argv[]) {
             continue;
         }
         if (arg == "--prometheus-export") {
-            if (i + 1 >= argc) {
-                throw std::runtime_error("--prometheus-export requires a directory argument");
-            }
-            parsed.prometheus_dir = argv[++i];
+            requires_value(arg, parsed.prometheus_dir);
             continue;
         }
-        if (arg.starts_with("--")) {
+        if (arg == "--telemetry-jsonl") {
+            requires_value(arg, parsed.telemetry_dir);
+            continue;
+        }
+        if (arg == "--replay-manifest") {
+            requires_value(arg, parsed.replay_manifest);
+            continue;
+        }
+        if (arg == "--luck-file") {
+            requires_value(arg, parsed.luck_file);
+            continue;
+        }
+        if (arg.size() >= 2 && arg[0] == '-' && arg[1] == '-') {
             if (i + 1 >= argc) {
                 throw std::runtime_error("Missing value for argument: " + arg);
             }
@@ -82,6 +112,25 @@ ParsedArgs ParseArguments(int argc, char* argv[]) {
     return parsed;
 }
 
+void RunPostAutomation(const std::filesystem::path& repo_root) {
+    const std::filesystem::path qa_script = repo_root / "scripts/run-qa.sh";
+    const std::filesystem::path report_script = repo_root / "scripts/generate-report.sh";
+
+    if (std::filesystem::exists(qa_script)) {
+        int rc = std::system(qa_script.c_str());
+        if (rc != 0) {
+            std::cerr << "run-qa.sh exited with code " << rc << std::endl;
+        }
+    }
+
+    if (std::filesystem::exists(report_script)) {
+        int rc = std::system(report_script.c_str());
+        if (rc != 0) {
+            std::cerr << "generate-report.sh exited with code " << rc << std::endl;
+        }
+    }
+}
+
 }  // namespace
 
 int main(int argc, char* argv[]) {
@@ -95,22 +144,28 @@ int main(int argc, char* argv[]) {
         options.operator_id = parsed.operator_id;
         options.operator_purpose = parsed.operator_purpose;
         options.enable_checkpoint = parsed.enable_checkpoint;
+        options.dry_run = parsed.dry_run;
+        options.telemetry_jsonl_dir = parsed.telemetry_dir;
+        options.prometheus_dir = parsed.prometheus_dir;
+        options.replay_manifest_path = parsed.replay_manifest;
+        options.luck_file = parsed.luck_file;
 
         if (auto cfg = puzzle71::config::LoadConfig("config/puzzle71.yaml")) {
-            if (options.operator_id == "unset") options.operator_id = cfg->operator_meta.operator_id;
-            if (options.operator_purpose == "development") options.operator_purpose = cfg->operator_meta.operator_purpose;
-        }
-
-        if (parsed.dry_run) {
-            std::cout << "Dry run: configuration validated." << std::endl;
-            return 0;
+            if (options.operator_id.empty() || options.operator_id == "unset") {
+                options.operator_id = cfg->operator_meta.operator_id;
+            }
+            if (options.operator_purpose.empty() || options.operator_purpose == "development") {
+                options.operator_purpose = cfg->operator_meta.operator_purpose;
+            }
+            if (!options.telemetry_jsonl_dir && !cfg->replay.grid_dim.empty()) {
+                options.telemetry_jsonl_dir = "telemetry";
+            }
         }
 
         puzzle71::Puzzle71Solver solver(options);
         solver.Run();
 
-        // TODO: integrate telemetry logging, Prometheus exporter, digest verification, and QA scripts (T042–T051).
-        std::cout << "Puzzle71Solver run completed (stub)." << std::endl;
+        RunPostAutomation(std::filesystem::current_path());
         return 0;
 
     } catch (const std::exception& ex) {
