@@ -1,0 +1,15 @@
+make: Entering directory '/mnt/d/mybitcoin/puzzlekeyhunt/PuzzleKeyhunt/build'
+make[1]: Entering directory '/mnt/d/mybitcoin/puzzlekeyhunt/PuzzleKeyhunt/build'
+make[2]: Entering directory '/mnt/d/mybitcoin/puzzlekeyhunt/PuzzleKeyhunt/build'
+make[3]: Entering directory '/mnt/d/mybitcoin/puzzlekeyhunt/PuzzleKeyhunt/build'
+make[3]: Leaving directory '/mnt/d/mybitcoin/puzzlekeyhunt/PuzzleKeyhunt/build'
+[  5%] Built target secp256k1_precomputed
+make[3]: Entering directory '/mnt/d/mybitcoin/puzzlekeyhunt/PuzzleKeyhunt/build'
+make[3]: Leaving directory '/mnt/d/mybitcoin/puzzlekeyhunt/PuzzleKeyhunt/build'
+[ 10%] Built target secp256k1
+make[3]: Entering directory '/mnt/d/mybitcoin/puzzlekeyhunt/PuzzleKeyhunt/build'
+make[3]: Leaving directory '/mnt/d/mybitcoin/puzzlekeyhunt/PuzzleKeyhunt/build'
+[100%] Built target Puzzle71Solver
+make[2]: Leaving directory '/mnt/d/mybitcoin/puzzlekeyhunt/PuzzleKeyhunt/build'
+make[1]: Leaving directory '/mnt/d/mybitcoin/puzzlekeyhunt/PuzzleKeyhunt/build'
+make: Leaving directory '/mnt/d/mybitcoin/puzzlekeyhunt/PuzzleKeyhunt/build'
