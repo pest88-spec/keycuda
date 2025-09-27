@@ -142,9 +142,10 @@ private:
             device_props.sharedMemPerBlock = 49152;
         }
 
-        // Use intelligent block size selection for optimal performance
-        // Default to safe block size that is multiple of 32 (BitCrack requirement)
-        unsigned int block_size = 992;  // Safe: 1024 - 32 = 992 (multiple of 32)
+        // Use conservative block size selection to avoid resource limits
+        // "too many resources requested for launch" is caused by excessive register usage
+        // Default to smaller block size that fits within GPU resource constraints
+        unsigned int block_size = 256;  // Conservative: 256 threads (8 warps)
 
         // If device properties are available, try to optimize further
         if (err == cudaSuccess) {
@@ -155,18 +156,25 @@ private:
                 block_size = (block_size / 32) * 32;
             }
 
-            // Optimize for RTX 2080 Ti (68 SMs, 2048 threads per SM)
+            // Conservative optimization to avoid "too many resources requested for launch"
+            // BitCrack kernels use many registers for 256-bit integer operations
             unsigned int sm_count = device_props.multiProcessorCount;
-            unsigned int optimal_threads_per_sm = 1024;  // Sweet spot for many GPUs
-            unsigned int optimal_block_size = optimal_threads_per_sm;
 
-            // Ensure we don't exceed limits and maintain 32-alignment
-            optimal_block_size = std::min(optimal_block_size, (unsigned int)device_props.maxThreadsPerBlock);
-            optimal_block_size = (optimal_block_size / 32) * 32;
+            // Use very conservative block sizes to avoid all resource issues
+            unsigned int test_block_sizes[] = {64, 96, 128, 192, 256};
+            unsigned int num_test_sizes = sizeof(test_block_sizes) / sizeof(test_block_sizes[0]);
 
-            // Use the optimized size if it's reasonable
-            if (optimal_block_size >= 256 && optimal_block_size <= 1024) {
-                block_size = optimal_block_size;
+            // Start with very conservative size and increase if possible
+            for (unsigned int i = 0; i < num_test_sizes; i++) {
+                unsigned int test_size = test_block_sizes[i];
+                if (test_size <= (unsigned int)device_props.maxThreadsPerBlock) {
+                    // Ensure 32-alignment
+                    test_size = (test_size / 32) * 32;
+                    if (test_size >= 32) {  // Minimum 32 for BitCrack
+                        block_size = test_size;
+                        break;
+                    }
+                }
             }
         }
 
@@ -194,8 +202,13 @@ private:
         std::uint64_t threads_per_launch = blocks * (unsigned int)block_size;
         std::uint64_t target_points = 1;  // Start with 1 point per thread for maximum parallelism
 
-        // For large workloads, increase points per thread to reduce kernel launch overhead
-        if (desired > threads_per_launch * 16) {
+        // Increase points per thread to compensate for smaller block size
+        // This reduces kernel launch overhead and maintains total throughput
+        if (desired > threads_per_launch * 8) {
+            target_points = std::min<std::uint64_t>(desired / threads_per_launch, 256ULL);
+        } else if (desired > threads_per_launch * 4) {
+            target_points = std::min<std::uint64_t>(desired / threads_per_launch, 128ULL);
+        } else if (desired > threads_per_launch * 2) {
             target_points = std::min<std::uint64_t>(desired / threads_per_launch, 64ULL);
         }
 
