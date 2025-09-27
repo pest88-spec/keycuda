@@ -1,9 +1,11 @@
 #include "KeyhuntCore/adapters/bitcrack/keyfinder_adapter.h"
 
 #include <algorithm>
+#include <cstdio>
 #include <memory>
 #include <limits>
 #include <set>
+#include <stdexcept>
 
 #include "KeyhuntCore/adapters/bitcrack/conversions.h"
 #include "puzzle71_kernel.h"
@@ -58,7 +60,16 @@ public:
             return {};
         }
 
-        device_->doStep();
+        // Attempt GPU execution with basic error handling
+        try {
+            device_->doStep();
+        } catch (const KeySearchException& ex) {
+            const char* message = ex.msg.empty() ? "<no message>" : ex.msg.c_str();
+            fprintf(stderr, "KeySearchException during GPU step: %s\n", message);
+            fprintf(stderr, "This may indicate GPU resource constraints or configuration issues.\n");
+            fprintf(stderr, "Consider reducing workload or checking GPU memory usage.\n");
+            throw std::runtime_error(std::string("KeySearchException: ") + message);
+        }
 
         std::vector<::KeySearchResult> bc_results;
         device_->getResults(bc_results);
@@ -131,13 +142,48 @@ private:
             device_props.sharedMemPerBlock = 49152;
         }
 
-        // Calculate optimal block size based on GPU architecture
-        unsigned int block_size = std::min(static_cast<unsigned int>(device_props.maxThreadsPerBlock), 1024U);
+        // Use intelligent block size selection for optimal performance
+        // Default to safe block size that is multiple of 32 (BitCrack requirement)
+        unsigned int block_size = 992;  // Safe: 1024 - 32 = 992 (multiple of 32)
+
+        // If device properties are available, try to optimize further
+        if (err == cudaSuccess) {
+            // Ensure block size doesn't exceed device limits
+            if (block_size > (unsigned int)device_props.maxThreadsPerBlock) {
+                block_size = (unsigned int)device_props.maxThreadsPerBlock;
+                // Round down to nearest multiple of 32
+                block_size = (block_size / 32) * 32;
+            }
+
+            // Optimize for RTX 2080 Ti (68 SMs, 2048 threads per SM)
+            unsigned int sm_count = device_props.multiProcessorCount;
+            unsigned int optimal_threads_per_sm = 1024;  // Sweet spot for many GPUs
+            unsigned int optimal_block_size = optimal_threads_per_sm;
+
+            // Ensure we don't exceed limits and maintain 32-alignment
+            optimal_block_size = std::min(optimal_block_size, (unsigned int)device_props.maxThreadsPerBlock);
+            optimal_block_size = (optimal_block_size / 32) * 32;
+
+            // Use the optimized size if it's reasonable
+            if (optimal_block_size >= 256 && optimal_block_size <= 1024) {
+                block_size = optimal_block_size;
+            }
+        }
+
+        // Align block size to 32 (BitCrack requirement)
+        block_size = (block_size / 32) * 32;
+        if (block_size < 32) {
+            block_size = 32;
+        }
+
+        printf("CUDA Block Size Optimization:\n");
+        printf("  Final Block Size: %u (32-aligned)\n", block_size);
+        printf("  Device Query: %s\n", err == cudaSuccess ? "SUCCESS" : "FAILED");
 
         // Calculate optimal grid size to fully utilize all SMs
         // Each SM can handle multiple blocks concurrently
         unsigned int sm_count = device_props.multiProcessorCount;
-        unsigned int max_blocks_per_sm = device_props.maxThreadsPerMultiProcessor / block_size;
+        unsigned int max_blocks_per_sm = device_props.maxThreadsPerMultiProcessor / (unsigned int)block_size;
         unsigned int optimal_blocks = sm_count * max_blocks_per_sm;
 
         // Ensure we don't exceed grid limits but maximize GPU utilization
@@ -145,7 +191,7 @@ private:
                                                       static_cast<std::uint64_t>(device_props.maxGridSize[0]));
 
         // Adjust blocks to handle the desired workload efficiently
-        std::uint64_t threads_per_launch = blocks * block_size;
+        std::uint64_t threads_per_launch = blocks * (unsigned int)block_size;
         std::uint64_t target_points = 1;  // Start with 1 point per thread for maximum parallelism
 
         // For large workloads, increase points per thread to reduce kernel launch overhead
@@ -156,9 +202,9 @@ private:
         // Adjust threads to match desired workload
         if (desired > 0 && desired < threads_per_launch) {
             // For small workloads, reduce blocks but maintain efficiency
-            blocks = (desired + block_size * target_points - 1) / (block_size * target_points);
+            blocks = (desired + (unsigned int)block_size * target_points - 1) / ((unsigned int)block_size * target_points);
             blocks = std::max<std::uint64_t>(blocks, 1ULL);  // At least 1 block
-            threads_per_launch = blocks * block_size;
+            threads_per_launch = blocks * (unsigned int)block_size;
         }
 
         // Ensure reasonable points per thread (not too high, not too low)
@@ -166,7 +212,7 @@ private:
         target_points = std::min<std::uint64_t>(target_points, kMaxPointsPerThread);
 
         auto cfg = puzzle71::kernel::ChooseLaunchConfig(desired == 0 ? 1 : desired);
-        cfg.block = dim3(block_size, 1, 1);
+        cfg.block = dim3((unsigned int)block_size, 1, 1);
         cfg.grid = dim3(static_cast<unsigned int>(blocks), 1, 1);
         cfg.batch_size = threads_per_launch;
 
@@ -175,16 +221,25 @@ private:
             points_per_thread_ = 1;
         }
 
-        // Log GPU configuration for performance analysis
-        printf("GPU Configuration:\n");
-        printf("  Device: %s\n", device_props.name);
-        printf("  SM Count: %d\n", device_props.multiProcessorCount);
-        printf("  Block Size: %d\n", block_size);
+        // Log detailed GPU configuration for performance analysis and debugging
+        printf("\n=== GPU Launch Configuration ===\n");
+        printf("Device: %s\n", device_props.name);
+        printf("SM Count: %d\n", device_props.multiProcessorCount);
+        printf("Max Threads Per Block: %d\n", device_props.maxThreadsPerBlock);
+        printf("Max Threads Per SM: %d\n", device_props.maxThreadsPerMultiProcessor);
+        printf("\nLaunch Parameters:\n");
+        printf("  Block Size: %d (32-aligned)\n", block_size);
         printf("  Grid Size: %llu\n", (unsigned long long)blocks);
         printf("  Total Threads: %llu\n", (unsigned long long)threads_per_launch);
         printf("  Points Per Thread: %d\n", points_per_thread_);
         printf("  Keys Per Step: %llu\n", (unsigned long long)(threads_per_launch * points_per_thread_));
         printf("  Desired Workload: %llu\n", (unsigned long long)desired);
+        printf("  Batch Size: %lu\n", threads_per_launch);
+        printf("\nResource Utilization:\n");
+        printf("  SM Utilization: %.2f%%\n", (blocks * block_size * 100.0) / (sm_count * device_props.maxThreadsPerMultiProcessor));
+        printf("  Memory Efficiency: %d points per thread\n", points_per_thread_);
+        printf("  Device Optimization: %s\n", err == cudaSuccess ? "ENABLED" : "FALLBACK");
+        printf("========================================\n\n");
 
         device_ = std::make_unique<CudaKeySearchDevice>(kCudaDeviceIndex,
                                                         static_cast<int>(cfg.block.x),
