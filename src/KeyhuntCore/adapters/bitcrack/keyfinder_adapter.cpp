@@ -60,14 +60,41 @@ public:
             return {};
         }
 
-        // Attempt GPU execution with basic error handling
+        // Attempt GPU execution with enhanced error handling and debugging
         try {
+            // Add detailed debugging before GPU step
+            fprintf(stderr, "DEBUG: About to call device_->doStep()\n");
+            fprintf(stderr, "DEBUG: Points per thread: %d\n", points_per_thread_);
+
             device_->doStep();
+
+            fprintf(stderr, "DEBUG: device_->doStep() completed successfully\n");
         } catch (const KeySearchException& ex) {
             const char* message = ex.msg.empty() ? "<no message>" : ex.msg.c_str();
             fprintf(stderr, "KeySearchException during GPU step: %s\n", message);
-            fprintf(stderr, "This may indicate GPU resource constraints or configuration issues.\n");
-            fprintf(stderr, "Consider reducing workload or checking GPU memory usage.\n");
+            fprintf(stderr, "Detailed error information:\n");
+            fprintf(stderr, "  - Error message: '%s'\n", message);
+            fprintf(stderr, "  - Points per thread: %d\n", points_per_thread_);
+
+            // Analyze error type and provide specific suggestions
+            if (strstr(message, "too many resources") != nullptr) {
+                fprintf(stderr, "Analysis: GPU resource limits exceeded\n");
+                fprintf(stderr, "Suggestion: Try smaller block size (64, 96, 128)\n");
+            } else if (strstr(message, "invalid argument") != nullptr) {
+                fprintf(stderr, "Analysis: Invalid kernel argument or parameter\n");
+                fprintf(stderr, "Possible causes:\n");
+                fprintf(stderr, "  - Memory allocation failure\n");
+                fprintf(stderr, "  - Invalid kernel parameters\n");
+                fprintf(stderr, "  - GPU memory insufficient\n");
+                fprintf(stderr, "Suggestion: Check GPU memory availability\n");
+            } else if (strstr(message, "out of memory") != nullptr) {
+                fprintf(stderr, "Analysis: GPU memory allocation failed\n");
+                fprintf(stderr, "Suggestion: Reduce points per thread or total workload\n");
+            } else {
+                fprintf(stderr, "Analysis: Unknown CUDA error\n");
+                fprintf(stderr, "Suggestion: Check GPU driver and CUDA compatibility\n");
+            }
+
             throw std::runtime_error(std::string("KeySearchException: ") + message);
         }
 
@@ -160,11 +187,11 @@ private:
             // BitCrack kernels use many registers for 256-bit integer operations
             unsigned int sm_count = device_props.multiProcessorCount;
 
-            // Use very conservative block sizes to avoid all resource issues
-            unsigned int test_block_sizes[] = {64, 96, 128, 192, 256};
+            // Use extremely conservative block sizes to avoid all resource issues
+            unsigned int test_block_sizes[] = {32, 64, 96, 128};
             unsigned int num_test_sizes = sizeof(test_block_sizes) / sizeof(test_block_sizes[0]);
 
-            // Start with very conservative size and increase if possible
+            // Start with minimum size and increase only if necessary
             for (unsigned int i = 0; i < num_test_sizes; i++) {
                 unsigned int test_size = test_block_sizes[i];
                 if (test_size <= (unsigned int)device_props.maxThreadsPerBlock) {
@@ -175,6 +202,11 @@ private:
                         break;
                     }
                 }
+            }
+
+            // If we're still having issues, try even smaller sizes
+            if (block_size > 64) {
+                block_size = 64;  // Force conservative size
             }
         }
 
@@ -202,14 +234,16 @@ private:
         std::uint64_t threads_per_launch = blocks * (unsigned int)block_size;
         std::uint64_t target_points = 1;  // Start with 1 point per thread for maximum parallelism
 
-        // Increase points per thread to compensate for smaller block size
-        // This reduces kernel launch overhead and maintains total throughput
-        if (desired > threads_per_launch * 8) {
-            target_points = std::min<std::uint64_t>(desired / threads_per_launch, 256ULL);
+        // Use very conservative points per thread to reduce memory usage
+        // This helps avoid "invalid argument" errors from memory allocation failures
+        if (desired > threads_per_launch * 16) {
+            target_points = std::min<std::uint64_t>(desired / threads_per_launch, 32ULL);
+        } else if (desired > threads_per_launch * 8) {
+            target_points = std::min<std::uint64_t>(desired / threads_per_launch, 16ULL);
         } else if (desired > threads_per_launch * 4) {
-            target_points = std::min<std::uint64_t>(desired / threads_per_launch, 128ULL);
+            target_points = std::min<std::uint64_t>(desired / threads_per_launch, 8ULL);
         } else if (desired > threads_per_launch * 2) {
-            target_points = std::min<std::uint64_t>(desired / threads_per_launch, 64ULL);
+            target_points = std::min<std::uint64_t>(desired / threads_per_launch, 4ULL);
         }
 
         // Adjust threads to match desired workload
@@ -223,6 +257,51 @@ private:
         // Ensure reasonable points per thread (not too high, not too low)
         target_points = std::max<std::uint64_t>(target_points, 1ULL);
         target_points = std::min<std::uint64_t>(target_points, kMaxPointsPerThread);
+
+        // CRITICAL FIX: Use extremely conservative limits to avoid BitCrack internal failures
+        // Based on testing, BitCrack fails with large configurations even when within GPU limits
+        const std::uint64_t max_total_threads = 8192;   // 8K threads (very conservative)
+        const std::uint64_t max_keys_per_step = 16384;   // 16K keys per step (very conservative)
+
+        if (threads_per_launch > max_total_threads) {
+            fprintf(stderr, "WARNING: Reducing workload from %llu to %llu threads to avoid GPU limitations\n",
+                    static_cast<unsigned long long>(threads_per_launch),
+                    static_cast<unsigned long long>(max_total_threads));
+
+            // Scale down proportionally
+            double scale_factor = static_cast<double>(max_total_threads) / threads_per_launch;
+            blocks = static_cast<std::uint64_t>(static_cast<double>(blocks) * scale_factor);
+            threads_per_launch = max_total_threads;
+
+            // Ensure minimum values
+            blocks = std::max<std::uint64_t>(blocks, 1ULL);
+            threads_per_launch = std::max<std::uint64_t>(threads_per_launch, (unsigned int)block_size);
+
+            fprintf(stderr, "Adjusted: blocks=%llu, threads=%llu\n",
+                    static_cast<unsigned long long>(blocks),
+                    static_cast<unsigned long long>(threads_per_launch));
+        }
+
+        // ULTRA-CONSERVATIVE: Further reduce if we're still in dangerous territory
+        if (blocks > 256) {
+            fprintf(stderr, "ULTRA-CONSERVATIVE: Further reducing blocks from %llu to 256\n",
+                    static_cast<unsigned long long>(blocks));
+            blocks = 256;
+            threads_per_launch = blocks * (unsigned int)block_size;
+        }
+
+        // FINAL SAFETY CHECK: Ensure total keys per step is reasonable
+        std::uint64_t total_keys = threads_per_launch * target_points;
+        if (total_keys > max_keys_per_step) {
+            fprintf(stderr, "FINAL SAFETY: Reducing keys per step from %llu to %llu\n",
+                    static_cast<unsigned long long>(total_keys),
+                    static_cast<unsigned long long>(max_keys_per_step));
+
+            // Reduce points per thread proportionally
+            double key_scale = static_cast<double>(max_keys_per_step) / total_keys;
+            target_points = static_cast<std::uint64_t>(static_cast<double>(target_points) * key_scale);
+            target_points = std::max<std::uint64_t>(target_points, 1ULL);
+        }
 
         auto cfg = puzzle71::kernel::ChooseLaunchConfig(desired == 0 ? 1 : desired);
         cfg.block = dim3((unsigned int)block_size, 1, 1);
