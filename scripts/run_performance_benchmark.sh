@@ -10,6 +10,7 @@ BENCHMARK_DIR="benchmarks"
 RESULTS_FILE="${BENCHMARK_DIR}/latest.json"
 LOG_FILE="${BENCHMARK_DIR}/benchmark.log"
 GPU_MONITOR_INTERVAL=1  # 秒
+SOLVER_BINARY="${SOLVER_BINARY:-./build/Puzzle71Solver}"
 
 # 测试配置 - 使用正确的Puzzle 71范围（较小值开始，较大值结束）
 KEYSPACE_START="0x1"
@@ -20,6 +21,10 @@ OPERATOR_PURPOSE="performance-test"
 
 # 创建基准测试目录
 mkdir -p "$BENCHMARK_DIR"
+if [[ ! -x "$SOLVER_BINARY" ]]; then
+    echo "ERROR: Solver binary not found or not executable: $SOLVER_BINARY" >&2
+    exit 1
+fi
 
 # 清理旧文件
 rm -f "$RESULTS_FILE" "$LOG_FILE"
@@ -54,7 +59,7 @@ run_benchmark() {
     # 运行测试
     start_time=$(date +%s.%N)
 
-    timeout ${expected_duration}s ./Puzzle71Solver \
+    timeout ${expected_duration}s "$SOLVER_BINARY" \
         --keyspace "${keyspace_start}:${keyspace_end}" \
         --target-address "$TARGET_ADDRESS" \
         --operator-id "${OPERATOR_ID}" \

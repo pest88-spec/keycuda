@@ -258,49 +258,16 @@ private:
         target_points = std::max<std::uint64_t>(target_points, 1ULL);
         target_points = std::min<std::uint64_t>(target_points, kMaxPointsPerThread);
 
-        // CRITICAL FIX: Use extremely conservative limits to avoid BitCrack internal failures
-        // Based on testing, BitCrack fails with large configurations even when within GPU limits
-        const std::uint64_t max_total_threads = 8192;   // 8K threads (very conservative)
-        const std::uint64_t max_keys_per_step = 16384;   // 16K keys per step (very conservative)
+        // OPTIMIZED: Allow larger workloads since BitCrack now has built-in parameter validation
+        // The modified BitCrack will handle parameter limits and stack size automatically
+        const std::uint64_t suggested_max_threads = 262144;  // 256K threads (reasonable limit)
+        const std::uint64_t suggested_max_keys = 1048576;    // 1M keys per step (reasonable limit)
 
-        if (threads_per_launch > max_total_threads) {
-            fprintf(stderr, "WARNING: Reducing workload from %llu to %llu threads to avoid GPU limitations\n",
+        if (threads_per_launch > suggested_max_threads) {
+            fprintf(stderr, "INFO: Workload exceeds suggested limits, but BitCrack will handle validation\n");
+            fprintf(stderr, "  Requested: %llu threads, suggested: %llu threads\n",
                     static_cast<unsigned long long>(threads_per_launch),
-                    static_cast<unsigned long long>(max_total_threads));
-
-            // Scale down proportionally
-            double scale_factor = static_cast<double>(max_total_threads) / threads_per_launch;
-            blocks = static_cast<std::uint64_t>(static_cast<double>(blocks) * scale_factor);
-            threads_per_launch = max_total_threads;
-
-            // Ensure minimum values
-            blocks = std::max<std::uint64_t>(blocks, 1ULL);
-            threads_per_launch = std::max<std::uint64_t>(threads_per_launch, (unsigned int)block_size);
-
-            fprintf(stderr, "Adjusted: blocks=%llu, threads=%llu\n",
-                    static_cast<unsigned long long>(blocks),
-                    static_cast<unsigned long long>(threads_per_launch));
-        }
-
-        // ULTRA-CONSERVATIVE: Further reduce if we're still in dangerous territory
-        if (blocks > 256) {
-            fprintf(stderr, "ULTRA-CONSERVATIVE: Further reducing blocks from %llu to 256\n",
-                    static_cast<unsigned long long>(blocks));
-            blocks = 256;
-            threads_per_launch = blocks * (unsigned int)block_size;
-        }
-
-        // FINAL SAFETY CHECK: Ensure total keys per step is reasonable
-        std::uint64_t total_keys = threads_per_launch * target_points;
-        if (total_keys > max_keys_per_step) {
-            fprintf(stderr, "FINAL SAFETY: Reducing keys per step from %llu to %llu\n",
-                    static_cast<unsigned long long>(total_keys),
-                    static_cast<unsigned long long>(max_keys_per_step));
-
-            // Reduce points per thread proportionally
-            double key_scale = static_cast<double>(max_keys_per_step) / total_keys;
-            target_points = static_cast<std::uint64_t>(static_cast<double>(target_points) * key_scale);
-            target_points = std::max<std::uint64_t>(target_points, 1ULL);
+                    static_cast<unsigned long long>(suggested_max_threads));
         }
 
         auto cfg = puzzle71::kernel::ChooseLaunchConfig(desired == 0 ? 1 : desired);
