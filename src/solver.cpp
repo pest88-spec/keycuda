@@ -652,7 +652,7 @@ void Puzzle71Solver::Run() {
                     std::string private_key_hex = candidate.private_key.ToHex();
                     std::cout << "Found match: private_key=" << private_key_hex << std::endl;
 
-                    // Generate address using Hash160 → Base58 conversion
+                    // Generate address using Hash160 → Base58 conversion (pure implementation)
                     std::string address;
                     {
                         // Hash160 is already computed and verified by GPU
@@ -684,19 +684,43 @@ void Puzzle71Solver::Run() {
                         // Append first 4 bytes of checksum
                         std::memcpy(versioned + 21, checksum_full, 4);
 
-                        // Convert to secp256k1::uint256 for BitCrack Base58
-                        // BitCrack uint256 uses v[8] array (8 x 32-bit words) in specific byte order
-                        secp256k1::uint256 big_int;
-                        std::memset(big_int.v, 0, sizeof(big_int.v));
+                        // Pure Base58 encoding (avoiding BitCrack's toxic implementation)
+                        static const char* base58_chars = "123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz";
+                        std::string b58;
 
-                        // Pack 25 bytes into 8 uint32_t words (big-endian to match BitCrack)
-                        for (int i = 0; i < 25; ++i) {
-                            int word_idx = i / 4;
-                            int byte_pos = i % 4;
-                            big_int.v[word_idx] |= static_cast<uint32_t>(versioned[24 - i]) << (byte_pos * 8);
+                        // Count leading zeros
+                        int leading_zeros = 0;
+                        for (int i = 0; i < 25 && versioned[i] == 0; ++i) {
+                            leading_zeros++;
                         }
 
-                        address = "1" + Base58::toBase58(big_int);
+                        // Convert to base58
+                        unsigned char temp[25];
+                        std::memcpy(temp, versioned, 25);
+
+                        while (true) {
+                            // Check if all zeros
+                            bool all_zero = true;
+                            for (int i = 0; i < 25; ++i) {
+                                if (temp[i] != 0) {
+                                    all_zero = false;
+                                    break;
+                                }
+                            }
+                            if (all_zero) break;
+
+                            // Divide by 58, remainder becomes next digit
+                            int remainder = 0;
+                            for (int i = 0; i < 25; ++i) {
+                                int current = remainder * 256 + temp[i];
+                                temp[i] = current / 58;
+                                remainder = current % 58;
+                            }
+                            b58 = base58_chars[remainder] + b58;
+                        }
+
+                        // Add '1' for each leading zero byte
+                        address = std::string(leading_zeros, '1') + b58;
                         std::cout << "  Generated address: " << address << std::endl;
                     }
 
