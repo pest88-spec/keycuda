@@ -47,6 +47,10 @@
 
 #include <cuda_runtime.h>
 
+#include <sys/types.h>
+#include <sys/wait.h>
+#include <unistd.h>
+
 namespace puzzle71 {
 
 namespace {
@@ -648,42 +652,46 @@ void Puzzle71Solver::Run() {
                         throw std::runtime_error("CPU parity mismatch for candidate");
                     }
 
-                    // CRITICAL: Save private key immediately to avoid data loss
+                    // CRITICAL: Save private key immediately
                     std::string private_key_hex = candidate.private_key.ToHex();
                     std::cout << "Found match: private_key=" << private_key_hex << std::endl;
 
-                    // HOTFIX: Address::fromPublicKey causes memory corruption on H20
-                    // Use static buffer to avoid heap corruption, save key BEFORE address generation
-                    static char address_buffer[64] = {0};
-                    std::string address = "UNKNOWN";
+                    // WORKAROUND: BitCrack's Address::fromPublicKey is broken on H20
+                    // Skip address generation entirely to avoid memory corruption
+                    std::string address = "VERIFY_WITH_WALLET";
 
-                    try {
-                        // Try to generate address, but don't trust the result for memory operations
-                        std::string temp_addr = Address::fromPublicKey(point, candidate.is_compressed);
-                        std::cout << "  Generated address: " << temp_addr << std::endl;
-
-                        // Copy to static buffer to avoid double-free
-                        std::strncpy(address_buffer, temp_addr.c_str(), sizeof(address_buffer) - 1);
-                        address = address_buffer;
-                    } catch (...) {
-                        std::cerr << "Warning: Address generation failed, using placeholder" << std::endl;
-                        address = "ADDRESS_UNAVAILABLE";
+                    if (options_.parity_test_scalar_hex) {
+                        // For parity test only: try address generation with full isolation
+                        pid_t pid = fork();
+                        if (pid == 0) {
+                            // Child process: attempt address generation
+                            try {
+                                std::string addr = Address::fromPublicKey(point, candidate.is_compressed);
+                                std::cout << "  Generated address: " << addr << std::endl;
+                                _exit(0);
+                            } catch (...) {
+                                _exit(1);
+                            }
+                        } else if (pid > 0) {
+                            // Parent: wait for child
+                            int status;
+                            waitpid(pid, &status, 0);
+                            if (WIFEXITED(status) && WEXITSTATUS(status) == 0) {
+                                address = "PARITY_TEST_PASSED";
+                            }
+                        }
                     }
 
-                    // Save private key FIRST (critical data)
+                    // Save private key (critical data)
                     AppendLuckEntry(private_key_hex, address);
 
-                    // Store record (non-critical)
-                    try {
-                        ParityRecord record{};
-                        record.scalar = candidate.private_key;
-                        record.digest = candidate.digest;
-                        record.address = address;
-                        record.is_compressed = candidate.is_compressed;
-                        parity_records_.push_back(std::move(record));
-                    } catch (...) {
-                        // Ignore parity record failures
-                    }
+                    // Store record
+                    ParityRecord record{};
+                    record.scalar = candidate.private_key;
+                    record.digest = candidate.digest;
+                    record.address = address;
+                    record.is_compressed = candidate.is_compressed;
+                    parity_records_.push_back(std::move(record));
                 }
 
                 puzzle71::telemetry::TelemetryOptions telemetry_opts{};
