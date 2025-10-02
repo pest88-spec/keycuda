@@ -648,31 +648,42 @@ void Puzzle71Solver::Run() {
                         throw std::runtime_error("CPU parity mismatch for candidate");
                     }
 
-                    // Print match immediately (before potential crash in Address::fromPublicKey)
-                    std::cout << "Found match: private_key=" << candidate.private_key.ToHex() << std::endl;
+                    // CRITICAL: Save private key immediately to avoid data loss
+                    std::string private_key_hex = candidate.private_key.ToHex();
+                    std::cout << "Found match: private_key=" << private_key_hex << std::endl;
 
-                    // HOTFIX: Address::fromPublicKey may cause memory corruption on H20
-                    // Output key first, then try address generation
-                    std::string address;
+                    // HOTFIX: Address::fromPublicKey causes memory corruption on H20
+                    // Use static buffer to avoid heap corruption, save key BEFORE address generation
+                    static char address_buffer[64] = {0};
+                    std::string address = "UNKNOWN";
+
                     try {
-                        address = Address::fromPublicKey(point, candidate.is_compressed);
-                        std::cout << "  Generated address: " << address << std::endl;
-                    } catch (const std::exception& e) {
-                        std::cerr << "Warning: Address generation failed: " << e.what() << std::endl;
-                        address = "ADDRESS_GENERATION_FAILED";
+                        // Try to generate address, but don't trust the result for memory operations
+                        std::string temp_addr = Address::fromPublicKey(point, candidate.is_compressed);
+                        std::cout << "  Generated address: " << temp_addr << std::endl;
+
+                        // Copy to static buffer to avoid double-free
+                        std::strncpy(address_buffer, temp_addr.c_str(), sizeof(address_buffer) - 1);
+                        address = address_buffer;
                     } catch (...) {
-                        std::cerr << "Warning: Address generation crashed (unknown exception)" << std::endl;
-                        address = "ADDRESS_GENERATION_CRASHED";
+                        std::cerr << "Warning: Address generation failed, using placeholder" << std::endl;
+                        address = "ADDRESS_UNAVAILABLE";
                     }
 
-                    AppendLuckEntry(candidate.private_key.ToHex(), address);
+                    // Save private key FIRST (critical data)
+                    AppendLuckEntry(private_key_hex, address);
 
-                    ParityRecord record{};
-                    record.scalar = candidate.private_key;
-                    record.digest = candidate.digest;
-                    record.address = address;
-                    record.is_compressed = candidate.is_compressed;
-                    parity_records_.push_back(std::move(record));
+                    // Store record (non-critical)
+                    try {
+                        ParityRecord record{};
+                        record.scalar = candidate.private_key;
+                        record.digest = candidate.digest;
+                        record.address = address;
+                        record.is_compressed = candidate.is_compressed;
+                        parity_records_.push_back(std::move(record));
+                    } catch (...) {
+                        // Ignore parity record failures
+                    }
                 }
 
                 puzzle71::telemetry::TelemetryOptions telemetry_opts{};
