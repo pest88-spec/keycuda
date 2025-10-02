@@ -51,6 +51,8 @@ namespace puzzle71 {
 
 namespace {
 
+constexpr std::size_t kDigestWordCount = 5;
+
 std::string IsoTimestamp() {
     auto now = std::chrono::system_clock::now();
     std::time_t t = std::chrono::system_clock::to_time_t(now);
@@ -417,7 +419,7 @@ void Puzzle71Solver::Run() {
     // CRITICAL: Do NOT call parity_records_.clear() - causes memory corruption on H20
     // ParityRecord contains BitCrack Address objects with unsafe destructors
 
-    std::array<std::uint32_t, 5> target_hash = constants::kTargetHash160;
+    std::array<std::uint32_t, kDigestWordCount> target_hash = constants::kTargetHash160;
     std::optional<core::UInt256> parity_scalar_override;
 
     // In super mode, compute target hash from provided address (not Puzzle #71 constant)
@@ -644,15 +646,15 @@ void Puzzle71Solver::Run() {
                     auto secp_point_y = ::bitcrack_adapter::ToBitCrack(candidate.y);
                     secp256k1::ecpoint point(secp_point_x, secp_point_y);
 
-                    unsigned int digest[5] = {0};
+                    std::array<std::uint32_t, kDigestWordCount> digest{};
                     if (candidate.is_compressed) {
-                        Hash::hashPublicKeyCompressed(point, digest);
+                        Hash::hashPublicKeyCompressed(point, digest.data());
                     } else {
-                        Hash::hashPublicKey(point, digest);
+                        Hash::hashPublicKey(point, digest.data());
                     }
 
                     bool digest_match = true;
-                    for (std::size_t i = 0; i < 5; ++i) {
+                    for (std::size_t i = 0; i < digest.size(); ++i) {
                         if (digest[i] != candidate.digest[i]) {
                             digest_match = false;
                             break;
@@ -663,7 +665,7 @@ void Puzzle71Solver::Run() {
                     }
 
                     bool target_match = true;
-                    for (std::size_t i = 0; i < target_hash.size(); ++i) {
+                    for (std::size_t i = 0; i < kDigestWordCount; ++i) {
                         if (digest[i] != target_hash[i]) {
                             target_match = false;
                             break;
@@ -690,74 +692,15 @@ void Puzzle71Solver::Run() {
                     std::string private_key_hex = candidate.private_key.ToHex();
                     std::cout << "Found match: private_key=" << private_key_hex << std::endl;
 
-                    // Generate address - minimal safe implementation
-                    // BitCrack's Address::fromPublicKey causes memory corruption on H20
-                    // Root cause: Base58::toBase58() internal buffer management issue
-                    std::string address;
-                    {
-                        // Reuse GPU-computed and CPU-verified Hash160 (candidate.digest[5])
-                        unsigned char hash160[20];
-                        for (int i = 0; i < 5; ++i) {
-                            unsigned int word = candidate.digest[i];
-                            hash160[i*4 + 0] = (word >> 24) & 0xFF;
-                            hash160[i*4 + 1] = (word >> 16) & 0xFF;
-                            hash160[i*4 + 2] = (word >> 8) & 0xFF;
-                            hash160[i*4 + 3] = word & 0xFF;
-                        }
-
-                        // Build versioned payload: [version(1)] + [hash160(20)] + [checksum(4)]
-                        unsigned char versioned[25];
-                        versioned[0] = 0x00;  // Bitcoin mainnet P2PKH version byte
-                        std::memcpy(versioned + 1, hash160, 20);
-
-                        // Compute checksum: SHA256(SHA256(version + hash160))[0:4]
-                        unsigned char checksum_full[32];
-                        EVP_MD_CTX* mdctx = EVP_MD_CTX_new();
-                        EVP_DigestInit_ex(mdctx, EVP_sha256(), nullptr);
-                        EVP_DigestUpdate(mdctx, versioned, 21);
-                        EVP_DigestFinal_ex(mdctx, checksum_full, nullptr);
-                        EVP_DigestInit_ex(mdctx, EVP_sha256(), nullptr);
-                        EVP_DigestUpdate(mdctx, checksum_full, 32);
-                        EVP_DigestFinal_ex(mdctx, checksum_full, nullptr);
-                        EVP_MD_CTX_free(mdctx);
-                        std::memcpy(versioned + 21, checksum_full, 4);
-
-                        // Base58 encoding (pure byte-array implementation, no BigInt)
-                        static const char* base58_chars = "123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz";
-                        std::string b58;
-                        int leading_zeros = 0;
-                        for (int i = 0; i < 25 && versioned[i] == 0; ++i) {
-                            leading_zeros++;
-                        }
-
-                        unsigned char temp[25];
-                        std::memcpy(temp, versioned, 25);
-                        while (true) {
-                            bool all_zero = true;
-                            for (int i = 0; i < 25; ++i) {
-                                if (temp[i] != 0) {
-                                    all_zero = false;
-                                    break;
-                                }
-                            }
-                            if (all_zero) break;
-
-                            int remainder = 0;
-                            for (int i = 0; i < 25; ++i) {
-                                int current = remainder * 256 + temp[i];
-                                temp[i] = current / 58;
-                                remainder = current % 58;
-                            }
-                            b58 = base58_chars[remainder] + b58;
-                        }
-
-                        address = std::string(leading_zeros, '1') + b58;
-                        std::cout << "  Generated address: " << address << std::endl;
-                    }
+                    // Record address directly from target parameter (digest already verified)
+                    std::string address = options_.target_address;
+                    std::cout << "  Matched address: " << address << std::endl;
 
                     AppendLuckEntry(private_key_hex, address);
 
                     // Skip parity_records_ to avoid H20 memory corruption during cleanup
+                    // The critical data (private key + address) is already saved to disk
+// Skip parity_records_ to avoid H20 memory corruption during cleanup
                     // The critical data (private key + address) is already saved to disk
                 }
 
