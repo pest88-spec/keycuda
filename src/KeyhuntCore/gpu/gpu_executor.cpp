@@ -10,6 +10,7 @@
 #include <algorithm>
 #include <chrono>
 #include <iostream>
+#include <sstream>
 #include <stdexcept>
 #include <vector>
 
@@ -155,6 +156,21 @@ void GpuExecutor::PrepareBatch(const BatchConfig& config,
     DeviceBatch batch = host_scalars_.PrepareBatch(batch_start_, config_.keys_total);
 
     auto scalars = ToBitCrackScalars(batch.scalars);
+
+    std::uint64_t total_points = static_cast<std::uint64_t>(config_.grid.x) *
+                                 static_cast<std::uint64_t>(config_.block.x) *
+                                 static_cast<std::uint64_t>(config_.points_per_thread);
+    if (scalars.size() != total_points) {
+        std::ostringstream oss;
+        oss << "Scalar count mismatch: expected " << total_points
+            << " got " << scalars.size();
+        throw std::runtime_error(oss.str());
+    }
+
+    std::cout << "[debug] GpuExecutor: init blocks=" << config_.grid.x
+              << " threads=" << config_.block.x
+              << " points/thread=" << config_.points_per_thread
+              << " total_points=" << total_points << std::endl;
     InitializeDeviceKeys(scalars, config_.points_per_thread, config_.grid, config_.block);
     PrepareResultBuffers(batch.scalars.size());
 }
