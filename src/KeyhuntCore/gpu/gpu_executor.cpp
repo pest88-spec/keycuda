@@ -41,14 +41,24 @@ GpuExecutor::GpuExecutor(int device_id,
                          bool compressed,
                          const std::array<std::uint32_t, 5>& target_hash160)
     : device_id_(device_id), compressed_(compressed) {
+    std::cout << "[debug] GpuExecutor: Setting device " << device_id << std::endl;
+
+    cudaError_t err = cudaSetDevice(device_id_);
+    if (err != cudaSuccess) {
+        throw std::runtime_error(std::string("cudaSetDevice failed: ") + cudaGetErrorString(err));
+    }
+
+    std::cout << "[debug] GpuExecutor: Getting device properties..." << std::endl;
     if (cudaGetDeviceProperties(&props_, device_id_) != cudaSuccess) {
         throw std::runtime_error("cudaGetDeviceProperties failed");
     }
 
+    std::cout << "[debug] GpuExecutor: Uploading target HASH160..." << std::endl;
     auto status = puzzle71::compare::UploadTargetHash160(target_hash160);
     if (status != cudaSuccess) {
-        throw std::runtime_error("Failed to upload target HASH160");
+        throw std::runtime_error(std::string("Failed to upload target HASH160: ") + cudaGetErrorString(status));
     }
+    std::cout << "[debug] GpuExecutor: Constructor complete" << std::endl;
 }
 
 GpuExecutor::~GpuExecutor() {
