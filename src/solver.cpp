@@ -53,8 +53,6 @@ namespace {
 
 constexpr std::size_t kDigestWordCount = 5;
 
-constexpr std::uint64_t kMaxKeysPerBatch = 1ULL << 21;
-
 std::string IsoTimestamp() {
     auto now = std::chrono::system_clock::now();
     std::time_t t = std::chrono::system_clock::to_time_t(now);
@@ -147,33 +145,15 @@ gpu::BatchConfig BuildDeterministicBatchConfig(const puzzle71::config::ReplayCon
     }
     std::uint64_t threads = static_cast<std::uint64_t>(batch.grid.x) * batch.block.x;
     batch.keys_total = threads * static_cast<std::uint64_t>(batch.points_per_thread);
+    gpu::ClampBatchConfig(batch, batch.keys_total);
     return batch;
 }
 
 gpu::BatchConfig AdjustDeterministicBatch(const gpu::BatchConfig& base,
                                           const core::UInt256& remaining) {
     gpu::BatchConfig cfg = base;
-    constexpr int kMaxPointsPerThread = 4096;
-
-    if (cfg.block.x == 0) cfg.block.x = 32;
-    if (cfg.grid.x == 0) cfg.grid.x = 1;
-    if (cfg.points_per_thread <= 0) cfg.points_per_thread = 1;
-    if (cfg.points_per_thread > kMaxPointsPerThread) cfg.points_per_thread = kMaxPointsPerThread;
-
-    auto compute_keys_total = [&]() -> std::uint64_t {
-        return static_cast<std::uint64_t>(cfg.block.x) * cfg.grid.x *
-               static_cast<std::uint64_t>(cfg.points_per_thread);
-    };
-
     if (!remaining.FitsInUint64()) {
-        std::uint64_t threads = static_cast<std::uint64_t>(cfg.block.x) * cfg.grid.x;
-        if (threads == 0) {
-            cfg.block = dim3(32, 1, 1);
-            cfg.grid = dim3(1, 1, 1);
-            threads = 32;
-        }
-        std::uint64_t limit = std::min<std::uint64_t>(kMaxKeysPerBatch, compute_keys_total());
-        cfg.keys_total = limit > 0 ? limit : threads;
+        gpu::ClampBatchConfig(cfg, gpu::kMaxKeysPerBatch);
         return cfg;
     }
 
@@ -183,55 +163,8 @@ gpu::BatchConfig AdjustDeterministicBatch(const gpu::BatchConfig& base,
         return cfg;
     }
 
-    std::uint64_t threads = static_cast<std::uint64_t>(cfg.block.x) * cfg.grid.x;
-    if (threads == 0) {
-        cfg.block = dim3(32, 1, 1);
-        cfg.grid = dim3(1, 1, 1);
-        threads = 32;
-    }
-
-    std::uint64_t limit = std::min<std::uint64_t>(remaining64, kMaxKeysPerBatch);
-
-    if (threads > limit) {
-        std::uint64_t max_blocks = (limit + cfg.block.x - 1) / cfg.block.x;
-        if (max_blocks == 0) max_blocks = 1;
-        cfg.grid.x = static_cast<unsigned int>(max_blocks);
-        threads = static_cast<std::uint64_t>(cfg.block.x) * cfg.grid.x;
-        if (threads == 0) {
-            cfg.grid.x = 1;
-            threads = cfg.block.x;
-        }
-    }
-
-    std::uint64_t max_points = limit / threads;
-    if (max_points == 0) max_points = 1;
-    if (max_points > static_cast<std::uint64_t>(kMaxPointsPerThread)) max_points = kMaxPointsPerThread;
-    if (cfg.points_per_thread > static_cast<int>(max_points)) {
-        cfg.points_per_thread = static_cast<int>(max_points);
-    }
-
-    std::uint64_t keys_total = compute_keys_total();
-    if (keys_total > limit) {
-        std::uint64_t adjusted_blocks = limit / (cfg.block.x * cfg.points_per_thread);
-        if (adjusted_blocks == 0) adjusted_blocks = 1;
-        cfg.grid.x = static_cast<unsigned int>(std::min<std::uint64_t>(cfg.grid.x, adjusted_blocks));
-        if (cfg.grid.x == 0) cfg.grid.x = 1;
-        threads = static_cast<std::uint64_t>(cfg.block.x) * cfg.grid.x;
-        keys_total = compute_keys_total();
-
-        if (keys_total > limit) {
-            std::uint64_t adjusted_points = limit / threads;
-            if (adjusted_points == 0) adjusted_points = 1;
-            if (adjusted_points > static_cast<std::uint64_t>(kMaxPointsPerThread)) {
-                adjusted_points = kMaxPointsPerThread;
-            }
-            cfg.points_per_thread = static_cast<int>(adjusted_points);
-            keys_total = compute_keys_total();
-        }
-    }
-
-    if (keys_total > limit) keys_total = limit;
-    cfg.keys_total = keys_total;
+    std::uint64_t limit = std::min<std::uint64_t>(remaining64, gpu::kMaxKeysPerBatch);
+    gpu::ClampBatchConfig(cfg, limit);
     return cfg;
 }
 

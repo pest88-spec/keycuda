@@ -5,6 +5,7 @@
 
 #include <cuda_runtime.h>
 
+#include <cstddef>
 #include <cstdint>
 
 namespace puzzle71::gpu {
@@ -16,6 +17,10 @@ struct BatchConfig {
     std::uint64_t keys_total{0};
 };
 
+constexpr std::uint64_t kMaxKeysPerBatch = 1ULL << 21;          // 2,097,152 keys
+constexpr std::uint64_t kMaxThreadsPerBatch = 1ULL << 17;        // 131,072 threads
+constexpr std::size_t kMaxCandidateBuffer = 4096;                // bounded result slots
+
 class BatchPlanner {
 public:
     explicit BatchPlanner(int device_id);
@@ -23,12 +28,14 @@ public:
     BatchConfig Plan(const shards::ShardWalker& walker,
                      std::uint64_t desired_keys_hint = 1'048'576) const;
 
+    static constexpr int kMaxPointsPerThread = 4096;
+
 private:
     int device_id_{0};
     cudaDeviceProp props_{};
-
-    static constexpr int kMaxPointsPerThread = 4096;
 };
 
-}  // namespace puzzle71::gpu
+std::uint64_t ComputeThreadCount(dim3 grid, dim3 block);
+void ClampBatchConfig(BatchConfig& cfg, std::uint64_t keys_limit);
 
+}  // namespace puzzle71::gpu

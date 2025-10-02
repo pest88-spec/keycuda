@@ -1,4 +1,5 @@
 #include "KeyhuntCore/gpu/device_buffers.h"
+#include "KeyhuntCore/gpu/batch_planner.h"
 
 #include <algorithm>
 
@@ -46,6 +47,9 @@ void DeviceBuffers::Configure(dim3 grid, dim3 block) {
     grid_ = grid;
     block_ = block;
     std::uint64_t threads = static_cast<std::uint64_t>(grid.x) * block.x;
+    if (threads > kMaxThreadsPerBatch) {
+        threads = kMaxThreadsPerBatch;
+    }
     host_scalars_.resize(threads);
 }
 

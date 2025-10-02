@@ -1,6 +1,7 @@
 #include "KeyhuntCore/gpu/gpu_executor.h"
 
 #include "KeyhuntCore/adapters/bitcrack/conversions.h"
+#include "KeyhuntCore/gpu/batch_planner.h"
 #include "compare/kernels/hash160_fused.h"
 #include "cuda_runtime.h"
 #include "CudaKeySearchDevice/CudaDeviceKeys.h"
@@ -103,9 +104,13 @@ void GpuExecutor::InitializeDeviceKeys(const std::vector<secp256k1::uint256>& sc
 void GpuExecutor::PrepareResultBuffers(std::size_t capacity) {
     if (capacity == 0) {
         capacity = static_cast<std::size_t>(config_.block.x) *
-                   static_cast<std::size_t>(config_.grid.x) *
-                   static_cast<std::size_t>(config_.points_per_thread);
+                   static_cast<std::size_t>(config_.grid.x);
+        if (capacity == 0) {
+            capacity = 1;
+        }
     }
+
+    capacity = std::min<std::size_t>(capacity, kMaxCandidateBuffer);
 
     device_candidates_.Allocate(capacity);
     device_candidate_count_.Allocate(1);
@@ -131,10 +136,18 @@ void GpuExecutor::PrepareBatch(const BatchConfig& config,
         throw std::invalid_argument("BatchConfig missing launch parameters");
     }
 
-    if (config_.keys_total == 0) {
-        config_.keys_total = static_cast<std::uint64_t>(config_.block.x) *
-                             static_cast<std::uint64_t>(config_.grid.x) *
-                             static_cast<std::uint64_t>(config_.points_per_thread);
+    std::uint64_t limit = config_.keys_total;
+    if (limit == 0 || limit > kMaxKeysPerBatch) {
+        limit = kMaxKeysPerBatch;
+    }
+    ClampBatchConfig(config_, limit);
+    std::uint64_t threads = ComputeThreadCount(config_.grid, config_.block);
+    std::uint64_t computed_total = threads * static_cast<std::uint64_t>(config_.points_per_thread);
+    if (computed_total == 0) {
+        throw std::runtime_error("Invalid launch configuration after clamping");
+    }
+    if (config_.keys_total == 0 || config_.keys_total > computed_total) {
+        config_.keys_total = std::min<std::uint64_t>(computed_total, kMaxKeysPerBatch);
     }
 
     host_scalars_.Configure(config_.grid, config_.block);
