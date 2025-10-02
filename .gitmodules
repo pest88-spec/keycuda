@@ -4,7 +4,7 @@
 
 [submodule "third_party/BitCrack"]
 	path = third_party/BitCrack
-	url = https://github.com/brichard19/BitCrack.git
+	url = https://github.com/pest88-spec/BitCrack.git
 
 [submodule "third_party/CudaBrainSecp"]
 	path = third_party/CudaBrainSecp
