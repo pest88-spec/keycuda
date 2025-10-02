@@ -146,11 +146,12 @@ void GpuExecutor::PrepareBatch(const BatchConfig& config,
     if (computed_total == 0) {
         throw std::runtime_error("Invalid launch configuration after clamping");
     }
-    if (config_.keys_total == 0 || config_.keys_total > computed_total) {
-        config_.keys_total = std::min<std::uint64_t>(computed_total, kMaxKeysPerBatch);
+    if (computed_total > kMaxKeysPerBatch) {
+        throw std::runtime_error("Computed batch exceeds maximum limit");
     }
+    config_.keys_total = computed_total;
 
-    host_scalars_.Configure(config_.grid, config_.block);
+    host_scalars_.Configure(config_.grid, config_.block, config_.points_per_thread);
     DeviceBatch batch = host_scalars_.PrepareBatch(batch_start_, config_.keys_total);
 
     auto scalars = ToBitCrackScalars(batch.scalars);

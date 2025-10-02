@@ -23,7 +23,7 @@ public:
     DeviceBuffers(DeviceBuffers&& other) noexcept;
     DeviceBuffers& operator=(DeviceBuffers&& other) noexcept;
 
-    void Configure(dim3 grid, dim3 block);
+    void Configure(dim3 grid, dim3 block, int points_per_thread);
 
     DeviceBatch PrepareBatch(const core::UInt256& start, std::uint64_t batch_size);
 
@@ -33,6 +33,8 @@ private:
 
     dim3 grid_{0,0,0};
     dim3 block_{0,0,0};
+    int points_per_thread_{1};
+    std::size_t slots_{0};
     std::vector<core::UInt256> host_scalars_;
 };
 

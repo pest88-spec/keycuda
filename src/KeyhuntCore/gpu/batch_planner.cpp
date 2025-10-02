@@ -37,9 +37,11 @@ void ClampBatchConfig(BatchConfig& cfg, std::uint64_t keys_limit) {
         cfg.block.x = kWarp;
     }
     cfg.block.x = EnsureWarpAligned(cfg.block.x);
+
     if (cfg.grid.x == 0) {
         cfg.grid.x = 1;
     }
+
     if (cfg.points_per_thread <= 0) {
         cfg.points_per_thread = 1;
     }
@@ -51,9 +53,6 @@ void ClampBatchConfig(BatchConfig& cfg, std::uint64_t keys_limit) {
     if (effective_limit == 0 || effective_limit > kMaxKeysPerBatch) {
         effective_limit = kMaxKeysPerBatch;
     }
-    if (effective_limit == 0) {
-        effective_limit = kMaxKeysPerBatch;
-    }
 
     std::uint64_t threads = ComputeThreadCount(cfg.grid, cfg.block);
     if (threads == 0) {
@@ -62,10 +61,9 @@ void ClampBatchConfig(BatchConfig& cfg, std::uint64_t keys_limit) {
         threads = ComputeThreadCount(cfg.grid, cfg.block);
     }
 
-    // Limit threads to hardware and key-count constraints.
     std::uint64_t thread_cap = std::min<std::uint64_t>(kMaxThreadsPerBatch, effective_limit);
     if (thread_cap == 0) {
-        thread_cap = kMaxThreadsPerBatch;
+        thread_cap = 1;
     }
 
     while (threads > thread_cap && cfg.grid.x > 1) {
@@ -78,20 +76,12 @@ void ClampBatchConfig(BatchConfig& cfg, std::uint64_t keys_limit) {
         threads = ComputeThreadCount(cfg.grid, cfg.block);
     }
 
-    if (threads == 0) {
-        cfg.grid.x = 1;
-        cfg.block.x = kWarp;
-        threads = ComputeThreadCount(cfg.grid, cfg.block);
-    }
-
     if (threads > thread_cap) {
-        // Final clamp by recalculating grid directly from cap.
-        unsigned int block_threads = cfg.block.x;
-        std::uint64_t required_blocks = (thread_cap + block_threads - 1) / block_threads;
-        if (required_blocks == 0) {
-            required_blocks = 1;
+        std::uint64_t allowed_blocks = (thread_cap + cfg.block.x - 1) / cfg.block.x;
+        if (allowed_blocks == 0) {
+            allowed_blocks = 1;
         }
-        cfg.grid.x = static_cast<unsigned int>(std::max<std::uint64_t>(1, std::min<std::uint64_t>(required_blocks, cfg.grid.x)));
+        cfg.grid.x = static_cast<unsigned int>(std::max<std::uint64_t>(1, allowed_blocks));
         threads = ComputeThreadCount(cfg.grid, cfg.block);
     }
 
@@ -101,7 +91,28 @@ void ClampBatchConfig(BatchConfig& cfg, std::uint64_t keys_limit) {
         threads = ComputeThreadCount(cfg.grid, cfg.block);
     }
 
-    // Ensure the number of keys per batch stays within limit.
+    if (threads > effective_limit) {
+        std::uint64_t allowed_blocks = (effective_limit + cfg.block.x - 1) / cfg.block.x;
+        if (allowed_blocks == 0) {
+            allowed_blocks = 1;
+        }
+        cfg.grid.x = static_cast<unsigned int>(std::max<std::uint64_t>(1, allowed_blocks));
+        threads = ComputeThreadCount(cfg.grid, cfg.block);
+        while (threads > effective_limit && cfg.grid.x > 1) {
+            --cfg.grid.x;
+            threads = ComputeThreadCount(cfg.grid, cfg.block);
+        }
+        while (threads > effective_limit && cfg.block.x > kWarp) {
+            cfg.block.x = EnsureWarpAligned(std::max<unsigned int>(kWarp, cfg.block.x / 2));
+            threads = ComputeThreadCount(cfg.grid, cfg.block);
+        }
+        if (threads == 0) {
+            cfg.grid.x = 1;
+            cfg.block.x = kWarp;
+            threads = ComputeThreadCount(cfg.grid, cfg.block);
+        }
+    }
+
     std::uint64_t max_points = effective_limit / threads;
     if (max_points == 0) {
         max_points = 1;
@@ -112,23 +123,16 @@ void ClampBatchConfig(BatchConfig& cfg, std::uint64_t keys_limit) {
     if (static_cast<std::uint64_t>(cfg.points_per_thread) > max_points) {
         cfg.points_per_thread = static_cast<int>(max_points);
     }
+    if (cfg.points_per_thread <= 0) {
+        cfg.points_per_thread = 1;
+    }
 
     std::uint64_t keys_total = threads * static_cast<std::uint64_t>(cfg.points_per_thread);
     if (keys_total > effective_limit) {
-        std::uint64_t adjusted_points = effective_limit / threads;
-        if (adjusted_points == 0) {
-            adjusted_points = 1;
-        }
-        if (adjusted_points > static_cast<std::uint64_t>(BatchPlanner::kMaxPointsPerThread)) {
-            adjusted_points = BatchPlanner::kMaxPointsPerThread;
-        }
-        cfg.points_per_thread = static_cast<int>(adjusted_points);
+        cfg.points_per_thread = static_cast<int>(max_points);
         keys_total = threads * static_cast<std::uint64_t>(cfg.points_per_thread);
     }
 
-    if (keys_total > effective_limit) {
-        keys_total = effective_limit;
-    }
     cfg.keys_total = keys_total;
 }
 

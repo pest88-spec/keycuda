@@ -2,6 +2,7 @@
 #include "KeyhuntCore/gpu/batch_planner.h"
 
 #include <algorithm>
+#include <stdexcept>
 
 namespace puzzle71::gpu {
 
@@ -43,23 +44,39 @@ void DeviceBuffers::Swap(DeviceBuffers& other) noexcept {
     host_scalars_.swap(other.host_scalars_);
 }
 
-void DeviceBuffers::Configure(dim3 grid, dim3 block) {
+void DeviceBuffers::Configure(dim3 grid, dim3 block, int points_per_thread) {
     grid_ = grid;
     block_ = block;
+    points_per_thread_ = std::max(points_per_thread, 1);
+
     std::uint64_t threads = static_cast<std::uint64_t>(grid.x) * block.x;
-    if (threads > kMaxThreadsPerBatch) {
-        threads = kMaxThreadsPerBatch;
+    if (threads == 0) {
+        threads = 1;
     }
-    host_scalars_.resize(threads);
+
+    std::uint64_t total = threads * static_cast<std::uint64_t>(points_per_thread_);
+    if (total == 0 || total > kMaxKeysPerBatch) {
+        throw std::runtime_error("DeviceBuffers::Configure exceeds batch limits");
+    }
+
+    slots_ = static_cast<std::size_t>(total);
+    host_scalars_.resize(slots_);
 }
 
 DeviceBatch DeviceBuffers::PrepareBatch(const core::UInt256& start, std::uint64_t batch_size) {
     if (host_scalars_.empty()) {
-        Configure(dim3(1,1,1), dim3(1,1,1));
+        Configure(dim3(1,1,1), dim3(1,1,1), 1);
     }
 
-    std::uint64_t threads = static_cast<std::uint64_t>(grid_.x) * block_.x;
-    std::uint64_t span = std::min<std::uint64_t>(batch_size, threads);
+    if (batch_size == 0) {
+        throw std::runtime_error("DeviceBuffers::PrepareBatch called with zero batch size");
+    }
+
+    if (batch_size != slots_) {
+        throw std::runtime_error("Batch size mismatch with configured device buffers");
+    }
+
+    std::uint64_t span = std::min<std::uint64_t>(batch_size, slots_);
 
     core::UInt256 current = start;
     for (std::uint64_t i = 0; i < span; ++i) {
