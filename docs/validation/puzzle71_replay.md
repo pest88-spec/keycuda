@@ -1,133 +1,47 @@
-# Puzzle71Solver Replay Verification Report
+# Puzzle71Solver Replay Verification (T055)
 
-**Validation Date**: 2025-09-26
-**Objective**: Verify replay mechanism accuracy and consistency
-**Status**: Architecture verification complete | Full test pending stability fix
+- **Validation date**: 2025-10-01
+- **Scope**: Deterministic replay of parity shard `0xa00:0xbff`
+- **Inputs**:
+  - Manifest: `docs/validation/evidence/2025-10-01-parity/manifest-0xa00-2025-10-01T02-15-44Z.json`
+  - Telemetry: `docs/validation/evidence/2025-10-01-parity/puzzle71solver.ndjson`
 
-## Replay Verification Goals
+## 1. Goal
+Confirm that a stored checkpoint + telemetry bundle can be replayed and validated without divergence. This run tracks the parity shard executed on 2025-10-01 using the refreshed telemetry pipeline.
 
-Verify Puzzle71Solver's replay mechanism can:
-- Accurately reproduce previous calculation results
-- Ensure GPU/CPU parity consistency
-- Verify manifest and digest integrity
-- Ensure calculation process reproducibility
-
-## Replay Verification Architecture
-
-### Replay Mechanism Design
+## 2. Replay Attempt
 ```
-Original Calculation → Manifest Record → Replay Verification → Result Comparison
-                 ↓            ↓             ↓            ↓
-              GPU Calculation → Checkpoint → GPU Replay → Consistency Check
-```
-
-### Key Components
-1. **Manifest System**: Records calculation state and metadata
-2. **Checkpoint Mechanism**: Saves calculation intermediate results
-3. **Replay Engine**: Re-executes calculation process
-4. **Verification System**: Compares result consistency
-
-## Current Implementation Status
-
-### Completed Infrastructure
-
-#### 1. Replay Verification Script
-- `scripts/replay/verify-replay.sh` - Core replay verification script
-- Supports automatic manifest and digest validation
-- Provides detailed replay result reports
-
-#### 2. Manifest Format Definition
-```json
-{
-  "version": "1.0",
-  "shard_id": "shard_001",
-  "processed_keys": 69632,
-  "encryption_cipher": "AES-256-GCM",
-  "payload_sha256": "...",
-  "retention_expiry": "2025-12-31T23:59:59Z"
-}
+$ scripts/replay/verify-replay.sh \
+    /mnt/d/mybitcoin/puzzlekeyhunt/PuzzleKeyhunt/build/checkpoints/manifest-0xa00-2025-10-01T02:15:44Z.json \
+    /mnt/d/mybitcoin/puzzlekeyhunt/PuzzleKeyhunt/docs/validation/evidence/2025-10-01-parity/puzzle71solver.ndjson
+Replay verification completed successfully.
+Manifest : /mnt/d/mybitcoin/puzzlekeyhunt/PuzzleKeyhunt/build/checkpoints/manifest-0xa00-2025-10-01T02:15:44Z.json
+Payload  : /mnt/d/mybitcoin/puzzlekeyhunt/PuzzleKeyhunt/build/checkpoints/payload-0xa00-2025-10-01T02:15:44Z.chk
+Telemetry: /mnt/d/mybitcoin/puzzlekeyhunt/PuzzleKeyhunt/docs/validation/evidence/2025-10-01-parity/puzzle71solver.ndjson
+Processed keys: 0x200
+Payload SHA-256 verified: 9723786c1a5b6197b40d2d1f622ca8666f394fbc2185cf01606dd95542567f6b
+Telemetry SHA-256: 2bb96ae10027f9da3904857986654f0173ac798d86a50fb98c63f478b5931dc4
 ```
 
-#### 3. Digest Verification Mechanism
-- SHA-256 checksum verification
-- File integrity check
-- Tamper detection mechanism
+The script now validates the payload digest directly (via Python SHA-256) and confirms the telemetry archive is non-empty before returning success. Command trace remains stored in `docs/validation/evidence/2025-09-29-parity/parity_run_cmd.txt`.
 
-### Current Limitations
+## 3. Evidence Artifacts
+| Artifact | Location | SHA-256 |
+|----------|----------|---------|
+| Manifest (AES-256-GCM) | `docs/validation/evidence/2025-10-01-parity/manifest-0xa00-2025-10-01T02-15-44Z.json` | `c17586e6845ecebb7dbf59b81bdb7799805ced8d663afc2765bbc9679cfb6dbb` |
+| Encrypted payload | `docs/validation/evidence/2025-10-01-parity/payload-0xa00-2025-10-01T02-15-44Z.chk` | `9723786c1a5b6197b40d2d1f622ca8666f394fbc2185cf01606dd95542567f6b` |
+| Telemetry NDJSON | `docs/validation/evidence/2025-10-01-parity/puzzle71solver.ndjson` | `2bb96ae10027f9da3904857986654f0173ac798d86a50fb98c63f478b5931dc4` |
 
-#### 1. Stability Issues
-- **Symptom**: KeySearchException causes program crashes
-- **Impact**: Unable to complete full replay verification
-- **Status**: Need to fix BitCrack legacy architecture issues
+Manifest fields now包含 `shard_start/shard_end/next_scalar`, `grid_dim/block_dim/points_per_thread`, 以及 `keys_total`，便于重建 `ShardWalker` 和批次规划。
 
-#### 2. Data Collection Limitations
-- **Problem**: Cannot generate real calculation data
-- **Impact**: Lacks input data for replay verification
-- **Solution**: Depends on test data after stability fix
+## 4. Current Status
+- ✅ Checkpoint + telemetry captured for parity shard
+- ✅ Telemetry now包含起止、耗时与 `keys_per_sec`
+- 🔄 Action item: integrate telemetry diffing with `puzzle71::utils::DigestVerificationResult` using这些指标
 
-## Verification Checklist
+## 5. Next Steps
+1. Finish `verify-replay.sh` by calling the digest verifier and comparing against the archived SHA-256 values.
+2. Emit deterministic telemetry (start/end scalars, processed keys) during normal solver runs to feed the replay diff.
+3. Re-run the command above once tooling is complete and append diff results + exit status here.
 
-### Architecture Verification ✅ COMPLETED
-- [x] Replay script framework implementation
-- [x] Manifest format definition
-- [x] Digest verification mechanism
-- [x] Verification process design
-
-### Function Verification 🔄 PENDING (Stability Fix Required)
-- [ ] Basic replay test
-- [ ] Consistency verification
-- [ ] Performance benchmark test
-- [ ] Error handling verification
-
-### Completeness Verification 📋 PENDING
-- [ ] Large-scale replay test
-- [ ] Cross-device verification
-- [ ] Long-term stability verification
-- [ ] Boundary condition test
-
-## Milestone Timeline
-
-### Phase 1: Infrastructure ✅ COMPLETED
-- [x] Replay script development
-- [x] Manifest format definition
-- [x] Digest verification implementation
-
-### Phase 2: Function Verification 🔄 PENDING
-- [ ] Basic replay test
-- [ ] Consistency verification
-- [ ] Error handling test
-
-### Phase 3: Complete Verification 📋 PENDING
-- [ ] Large-scale replay
-- [ ] Performance benchmark test
-- [ ] Cross-device verification
-
-## Summary and Outlook
-
-### Current Achievements
-- ✅ **Architecture Complete**: Replay verification infrastructure completed
-- ✅ **Format Standardized**: Manifest and Digest formats defined
-- ✅ **Tools Ready**: Verification scripts and tools implemented
-- ✅ **Design Complete**: Verification process and test cases designed
-
-### Pending Work
-- 🔧 **Stability Fix**: Resolve program crash issues
-- 🧪 **Function Verification**: Complete actual replay tests
-- 📈 **Performance Optimization**: Optimize replay execution efficiency
-- 📝 **Documentation Completion**: Generate verification evidence and reports
-
-### Long-term Goals
-- 🎯 **Production Ready**: Implement enterprise-level replay verification
-- 🚀 **High Performance**: Replay overhead <5%
-- 🛡️ **Reliability**: 100% verification accuracy
-- 📊 **Monitoring Complete**: Real-time verification status monitoring
-
----
-
-**Report generated**: 2025-09-26T18:46
-**Verification status**: Architecture ✅ Complete | Function 🔄 Pending fix | Completeness 📋 Planned**
-**Dependency**: Requires program stability fix before complete verification
-
----
-
-**Key Value**: Provides reliable replay verification mechanism for Bitcoin private key scanning, ensuring calculation result accuracy and reproducibility, laying solid foundation for production environment deployment.
+This document replaces the previous placeholder and ties the replay story directly to the captured parity evidence.

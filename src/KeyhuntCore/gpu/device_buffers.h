@@ -20,6 +20,8 @@ public:
 
     DeviceBuffers(const DeviceBuffers&) = delete;
     DeviceBuffers& operator=(const DeviceBuffers&) = delete;
+    DeviceBuffers(DeviceBuffers&& other) noexcept;
+    DeviceBuffers& operator=(DeviceBuffers&& other) noexcept;
 
     void Configure(dim3 grid, dim3 block);
 
@@ -27,6 +29,7 @@ public:
 
 private:
     void Release();
+    void Swap(DeviceBuffers& other) noexcept;
 
     dim3 grid_{0,0,0};
     dim3 block_{0,0,0};

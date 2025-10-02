@@ -20,8 +20,26 @@ DeviceBuffers::~DeviceBuffers() {
     Release();
 }
 
+DeviceBuffers::DeviceBuffers(DeviceBuffers&& other) noexcept {
+    Swap(other);
+}
+
+DeviceBuffers& DeviceBuffers::operator=(DeviceBuffers&& other) noexcept {
+    if (this != &other) {
+        Release();
+        Swap(other);
+    }
+    return *this;
+}
+
 void DeviceBuffers::Release() {
     host_scalars_.clear();
+}
+
+void DeviceBuffers::Swap(DeviceBuffers& other) noexcept {
+    std::swap(grid_, other.grid_);
+    std::swap(block_, other.block_);
+    host_scalars_.swap(other.host_scalars_);
 }
 
 void DeviceBuffers::Configure(dim3 grid, dim3 block) {
@@ -51,4 +69,3 @@ DeviceBatch DeviceBuffers::PrepareBatch(const core::UInt256& start, std::uint64_
 }
 
 }  // namespace puzzle71::gpu
-

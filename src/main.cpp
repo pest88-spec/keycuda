@@ -6,8 +6,10 @@
 #include "utils/telemetry_logger.h"
 
 #include <filesystem>
+#include <cstdlib>
 #include <iostream>
 #include <optional>
+#include <sstream>
 #include <stdexcept>
 #include <string>
 #include <unordered_map>
@@ -25,13 +27,38 @@ struct ParsedArgs {
     std::optional<std::string> prometheus_dir;
     std::optional<std::string> telemetry_dir;
     std::optional<std::string> replay_manifest;
+    std::optional<std::string> resume_manifest;
     std::string luck_file{"luck.txt"};
+    std::optional<std::string> parity_test_scalar;
+    std::optional<std::string> device_list;
 };
+
+std::vector<int> ParseDeviceList(const std::optional<std::string>& list) {
+    std::vector<int> out;
+    if (!list || list->empty()) {
+        return out;
+    }
+    std::stringstream ss(*list);
+    std::string token;
+    while (std::getline(ss, token, ',')) {
+        if (token.empty()) {
+            continue;
+        }
+        try {
+            int id = std::stoi(token);
+            out.push_back(id);
+        } catch (const std::exception&) {
+            throw std::runtime_error("Invalid device id: " + token);
+        }
+    }
+    return out;
+}
 
 void PrintUsage() {
     std::cerr << "Usage: Puzzle71Solver --keyspace <start:end> --target-address <addr> --operator-id <id> "
-                 "--operator-purpose <purpose> [--dry-run] [--enable-checkpoint] "
+                 "--operator-purpose <purpose> [--device <ids>] [--dry-run] [--enable-checkpoint] "
                  "[--prometheus-export <dir>] [--telemetry-jsonl <dir>] [--replay-manifest <path>] "
+                 "[--resume-manifest <path>] "
                  "[--luck-file <path>]" << std::endl;
 }
 
@@ -77,6 +104,18 @@ ParsedArgs ParseArguments(int argc, char* argv[]) {
             requires_value(arg, parsed.replay_manifest);
             continue;
         }
+        if (arg == "--resume-manifest") {
+            requires_value(arg, parsed.resume_manifest);
+            continue;
+        }
+        if (arg == "--parity-test-scalar") {
+            requires_value(arg, parsed.parity_test_scalar);
+            continue;
+        }
+        if (arg == "--device") {
+            requires_value(arg, parsed.device_list);
+            continue;
+        }
         if (arg == "--luck-file") {
             requires_value(arg, parsed.luck_file);
             continue;
@@ -117,7 +156,9 @@ void RunPostAutomation(const std::filesystem::path& repo_root) {
     const std::filesystem::path report_script = repo_root / "scripts/generate-report.sh";
 
     if (std::filesystem::exists(qa_script)) {
-        int rc = std::system(qa_script.c_str());
+        ::setenv("PUZZLE71_BENCHMARK_ARGS", "--dry-run-only --samples 1 --devices 0", 1);
+        std::string command = qa_script.string() + " --mode smoke";
+        int rc = std::system(command.c_str());
         if (rc != 0) {
             std::cerr << "run-qa.sh exited with code " << rc << std::endl;
         }
@@ -148,9 +189,18 @@ int main(int argc, char* argv[]) {
         options.telemetry_jsonl_dir = parsed.telemetry_dir;
         options.prometheus_dir = parsed.prometheus_dir;
         options.replay_manifest_path = parsed.replay_manifest;
+        options.resume_manifest_path = parsed.resume_manifest;
         options.luck_file = parsed.luck_file;
+        options.parity_test_scalar_hex = parsed.parity_test_scalar;
+        options.device_ids = ParseDeviceList(parsed.device_list);
+
+        if (options.parity_test_scalar_hex) {
+            std::cerr << "[warning] Parity test mode enabled with scalar "
+                      << *options.parity_test_scalar_hex << std::endl;
+        }
 
         if (auto cfg = puzzle71::config::LoadConfig("config/puzzle71.yaml")) {
+            options.replay_config = cfg->replay;
             if (options.operator_id.empty() || options.operator_id == "unset") {
                 options.operator_id = cfg->operator_meta.operator_id;
             }

@@ -5,6 +5,8 @@
 #include <string>
 #include <vector>
 
+#include "config/puzzle71_config.h"
+
 #include "core/uint256.h"
 
 namespace puzzle71 {
@@ -18,9 +20,13 @@ struct SolverOptions {
     bool enable_checkpoint{false};
     bool dry_run{false};
     std::optional<std::string> replay_manifest_path;
+    std::optional<std::string> resume_manifest_path;
     std::optional<std::string> telemetry_jsonl_dir;
     std::optional<std::string> prometheus_dir;
     std::string luck_file{"luck.txt"};
+    std::optional<std::string> parity_test_scalar_hex;
+    std::vector<int> device_ids;
+    std::optional<puzzle71::config::ReplayConfig> replay_config;
 };
 
 class Puzzle71Solver {

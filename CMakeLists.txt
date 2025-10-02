@@ -44,9 +44,12 @@ set(PUZZLE71_CORE_SOURCES
   src/services/device_metrics.cpp
   src/config/puzzle71_config.cpp
   src/crypto/secp256k1_adapter.cpp
+  src/KeyhuntCore/adapters/bitcrack/gpu_context.cpp
+  src/KeyhuntCore/shards/shard_walker.cpp
+  src/KeyhuntCore/gpu/batch_planner.cpp
+  src/KeyhuntCore/gpu/gpu_executor.cpp
   src/KeyhuntCore/gpu/device_buffers.cpp
   src/KeyhuntCore/adapters/bitcrack/conversions.cpp
-  src/KeyhuntCore/adapters/bitcrack/keyfinder_adapter.cpp
 )
 
 add_executable(Puzzle71Solver ${PUZZLE71_CORE_SOURCES})
@@ -133,6 +136,10 @@ if(PUZZLE71_TEST_SOURCES)
   add_executable(puzzle71_tests ${PUZZLE71_TEST_SOURCES})
   target_link_libraries(puzzle71_tests PRIVATE GTest::gtest_main GTest::gmock_main Puzzle71Solver)
   target_compile_definitions(puzzle71_tests PRIVATE PUZZLE71_TESTING=1)
+  target_include_directories(puzzle71_tests PRIVATE
+    src
+    third_party/BitCrack
+  )
   add_test(NAME puzzle71_tests COMMAND puzzle71_tests)
 endif()
 

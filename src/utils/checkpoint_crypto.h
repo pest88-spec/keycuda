@@ -19,7 +19,8 @@ struct CheckpointCiphertext {
 };
 
 CheckpointCiphertext EncryptCheckpoint(const CheckpointCryptoConfig& config,
-                                       std::string_view plaintext);
+                                       std::string_view plaintext,
+                                       const std::vector<unsigned char>* nonce_override = nullptr);
 
 std::string DecryptCheckpoint(const CheckpointCryptoConfig& config,
                               const CheckpointCiphertext& cipher);

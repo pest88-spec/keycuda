@@ -3,6 +3,7 @@
 #include <openssl/evp.h>
 #include <openssl/rand.h>
 
+#include <algorithm>
 #include <stdexcept>
 #include <vector>
 
@@ -34,13 +35,18 @@ std::vector<unsigned char> DeriveKey(const CheckpointCryptoConfig& config) {
 }  // namespace
 
 CheckpointCiphertext EncryptCheckpoint(const CheckpointCryptoConfig& config,
-                                       std::string_view plaintext) {
+                                       std::string_view plaintext,
+                                       const std::vector<unsigned char>* nonce_override) {
     auto key = DeriveKey(config);
 
     CheckpointCiphertext cipher;
     cipher.nonce.resize(kNonceLength);
-    if (RAND_bytes(cipher.nonce.data(), static_cast<int>(cipher.nonce.size())) != 1) {
-        throw std::runtime_error("Failed to generate nonce");
+    if (nonce_override && nonce_override->size() == kNonceLength) {
+        std::copy(nonce_override->begin(), nonce_override->end(), cipher.nonce.begin());
+    } else {
+        if (RAND_bytes(cipher.nonce.data(), static_cast<int>(cipher.nonce.size())) != 1) {
+            throw std::runtime_error("Failed to generate nonce");
+        }
     }
 
     EVP_CIPHER_CTX* ctx = EVP_CIPHER_CTX_new();

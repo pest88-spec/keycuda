@@ -3,6 +3,7 @@
 #include <array>
 #include <cuda_runtime.h>
 
+#include "KeyhuntCore/gpu/device_results.h"
 #include "core/uint256.h"
 
 namespace puzzle71::kernel {
@@ -14,5 +15,15 @@ struct KernelLaunchConfig {
 };
 
 KernelLaunchConfig ChooseLaunchConfig(std::uint64_t desired_threads);
+
+cudaError_t SetResultBuffer(const puzzle71::gpu::DeviceResultBuffer& buffer);
+
+cudaError_t LaunchFusedKernel(dim3 grid,
+                              dim3 block,
+                              int points_per_thread,
+                              int compression);
+
+void EnableRegisterAudit(bool enabled);
+bool IsRegisterAuditEnabled();
 
 }  // namespace puzzle71::kernel

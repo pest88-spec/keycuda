@@ -1,12 +1,188 @@
 #include "puzzle71_kernel.h"
 
+#include "compare/kernels/hash160_fused.h"
+#include "utils/endianness.h"
+
+using puzzle71::gpu::DeviceCandidate;
+using puzzle71::gpu::DeviceResultBuffer;
+
 #include <cuda_runtime.h>
 
 #include <algorithm>
+#include <array>
+#include <atomic>
+#include <cstddef>
+#include <cstdio>
 
-#include "KeyhuntCore/adapters/bitcrack/keyfinder_adapter.h"
+#include "CudaKeySearchDevice/CudaDeviceKeys.cuh"
+#include "KeyFinderLib/KeySearchTypes.h"
+#include "cudaMath/secp256k1.cuh"
+
+namespace {
+
+constexpr std::array<std::uint32_t, 5> kRipemd160Iv = {
+    0x67452301u,
+    0xefcdab89u,
+    0x98badcfeu,
+    0x10325476u,
+    0xc3d2e1f0u};
+
+std::array<std::uint32_t, 5> PreFinalDigest(const std::array<std::uint32_t, 5>& final_digest) {
+    std::array<std::uint32_t, 5> out{};
+    for (std::size_t i = 0; i < out.size(); ++i) {
+        const auto swapped = puzzle71::utils::ByteSwap32(final_digest[i]);
+        out[i] = swapped - kRipemd160Iv[(i + 1) % out.size()];
+    }
+    return out;
+}
+
+}  // namespace
 
 extern __global__ void keyFinderKernel(int points, int compression);
+extern __device__ __constant__ unsigned int _INC_X[8];
+extern __device__ __constant__ unsigned int _INC_Y[8];
+extern __device__ __constant__ unsigned int* _CHAIN[1];
+
+namespace puzzle71::compare {
+__device__ __constant__ std::uint32_t kTargetHash160[5];
+
+cudaError_t UploadTargetHash160(const std::array<std::uint32_t, 5>& host_hash) {
+    auto pre_final = PreFinalDigest(host_hash);
+    return cudaMemcpyToSymbol(kTargetHash160,
+                              pre_final.data(),
+                              sizeof(std::uint32_t) * pre_final.size());
+}
+}  // namespace puzzle71::compare
+
+namespace {
+
+__device__ DeviceResultBuffer g_result_buffer;
+
+__device__ inline void FinalizeDigest(const std::uint32_t in[5], std::uint32_t out[5]) {
+    const std::uint32_t iv[5] = {
+        0x67452301u,
+        0xefcdab89u,
+        0x98badcfeu,
+        0x10325476u,
+        0xc3d2e1f0u};
+    for (int i = 0; i < 5; ++i) {
+        const std::uint32_t value = in[i] + iv[(i + 1) % 5];
+        out[i] = puzzle71::utils::ByteSwap32(value);
+    }
+}
+
+__device__ inline void WriteCandidate(int idx,
+                                      bool compressed,
+                                      const unsigned int x[8],
+                                      const unsigned int y[8],
+                                      const std::uint32_t digest[5]) {
+    if (g_result_buffer.capacity == 0 || g_result_buffer.candidates == nullptr ||
+        g_result_buffer.count == nullptr) {
+        return;
+    }
+    unsigned int slot = atomicAdd(g_result_buffer.count, 1u);
+    if (slot >= g_result_buffer.capacity) {
+        return;
+    }
+
+    DeviceCandidate& out = g_result_buffer.candidates[slot];
+    out.block = static_cast<std::uint32_t>(blockIdx.x);
+    out.thread = static_cast<std::uint32_t>(threadIdx.x);
+    out.idx = static_cast<std::uint32_t>(idx);
+    out.compressed = compressed ? 1u : 0u;
+    for (int i = 0; i < 8; ++i) {
+        out.x[i] = x[i];
+        out.y[i] = y[i];
+    }
+    FinalizeDigest(digest, out.digest);
+}
+
+__device__ void DoPuzzle71Iteration(int pointsPerThread, int compression) {
+    unsigned int *chain = _CHAIN[0];
+    unsigned int *xPtr = ec::getXPtr();
+    unsigned int *yPtr = ec::getYPtr();
+
+    const bool check_uncompressed =
+        (compression == PointCompressionType::UNCOMPRESSED) ||
+        (compression == PointCompressionType::BOTH);
+    const bool check_compressed =
+        (compression == PointCompressionType::COMPRESSED) ||
+        (compression == PointCompressionType::BOTH);
+
+    unsigned int inverse[8] = {0, 0, 0, 0, 0, 0, 0, 1};
+
+    for (int i = 0; i < pointsPerThread; ++i) {
+        unsigned int x[8];
+        readInt(xPtr, i, x);
+
+        if (check_uncompressed) {
+            unsigned int y[8];
+            readInt(yPtr, i, y);
+
+            std::uint32_t digest[5];
+            puzzle71::compare::Hash160Uncompressed(x, y, digest);
+
+            if (puzzle71::compare::HashMatchesTarget(digest)) {
+                unsigned int y_full[8];
+                copyBigInt(y, y_full);
+                WriteCandidate(i, false, x, y_full, digest);
+            }
+        }
+
+        if (check_compressed) {
+            std::uint32_t digest[5];
+            unsigned int y_parity = readIntLSW(yPtr, i);
+            puzzle71::compare::Hash160Compressed(x, y_parity, digest);
+
+            if (puzzle71::compare::HashMatchesTarget(digest)) {
+                unsigned int y[8];
+                readInt(yPtr, i, y);
+                WriteCandidate(i, true, x, y, digest);
+            }
+        }
+
+        beginBatchAddWithDouble(_INC_X, _INC_Y, xPtr, chain, i, i, inverse);
+    }
+
+    doBatchInverse(inverse);
+
+    for (int i = pointsPerThread - 1; i >= 0; --i) {
+        unsigned int newX[8];
+        unsigned int newY[8];
+
+        unsigned int x[8];
+        readInt(xPtr, i, x);
+        bool infinity = isInfinity(x);
+
+        if (!infinity) {
+            completeBatchAddWithDouble(_INC_X,
+                                       _INC_Y,
+                                       xPtr,
+                                       yPtr,
+                                       i,
+                                       i,
+                                       chain,
+                                       inverse,
+                                       newX,
+                                       newY);
+            writeInt(xPtr, i, newX);
+            writeInt(yPtr, i, newY);
+        } else {
+            copyBigInt(_INC_X, newX);
+            copyBigInt(_INC_Y, newY);
+            writeInt(xPtr, i, newX);
+            writeInt(yPtr, i, newY);
+        }
+    }
+}
+
+__global__ void Puzzle71FusedKernel(int pointsPerThread, int compression) {
+    DoPuzzle71Iteration(pointsPerThread, compression);
+}
+
+std::atomic<bool> g_register_audit{false};
+
+}  // namespace
 
 namespace puzzle71::kernel {
 
@@ -55,6 +231,36 @@ KernelLaunchConfig ChooseLaunchConfig(std::uint64_t desired_threads) {
     config.batch_size = config.block.x * config.grid.x;
 
     return config;
+}
+
+cudaError_t LaunchFusedKernel(dim3 grid,
+                              dim3 block,
+                              int points_per_thread,
+                              int compression) {
+    if (g_register_audit.load(std::memory_order_relaxed)) {
+        cudaFuncAttributes attrs{};
+        if (cudaFuncGetAttributes(&attrs, Puzzle71FusedKernel) == cudaSuccess) {
+            std::fprintf(stderr,
+                         "[register_audit] fused_kernel regs=%d shared=%zu bytes\n",
+                         attrs.numRegs,
+                         static_cast<std::size_t>(attrs.sharedSizeBytes));
+        }
+    }
+
+    Puzzle71FusedKernel<<<grid, block>>>(points_per_thread, compression);
+    return cudaGetLastError();
+}
+
+cudaError_t SetResultBuffer(const puzzle71::gpu::DeviceResultBuffer& buffer) {
+    return cudaMemcpyToSymbol(g_result_buffer, &buffer, sizeof(buffer));
+}
+
+void EnableRegisterAudit(bool enabled) {
+    g_register_audit.store(enabled, std::memory_order_relaxed);
+}
+
+bool IsRegisterAuditEnabled() {
+    return g_register_audit.load(std::memory_order_relaxed);
 }
 
 }  // namespace puzzle71::kernel

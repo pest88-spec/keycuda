@@ -1,0 +1,13 @@
+{
+  "version": "1.0",
+  "generated_at": "2025-10-02T00:00:00Z",
+  "notes": "Baseline throughput targets for WSL2 development environment.",
+  "baselines": [
+    {
+      "gpu_model": "NVIDIA GeForce RTX 2080 Ti",
+      "min_keys_per_sec": 900000000,
+      "environment": "WSL2",
+      "comment": "WSL2 incurs ~10% overhead compared to native Linux; production baseline remains 1,000M keys/sec."
+    }
+  ]
+}
