@@ -425,8 +425,22 @@ void Puzzle71Solver::Run() {
         std::cout << "[super] Computing target hash from address: " << options_.target_address << std::endl;
         // TODO: Need to decode Base58 address to get Hash160
         // For now, throw error to indicate this needs implementation
-        throw std::runtime_error("Super mode requires --parity-test-scalar to derive target hash. "
-                                "Use: --parity-test-scalar <known_private_key> to test algorithm.");
+        // Use Base58::toHash160 to decode any Bitcoin address
+        if(!Base58::isBase58(options_.target_address)) {
+            throw std::runtime_error("Invalid Base58 address: " + options_.target_address);
+        }
+
+        try {
+            Base58::toHash160(options_.target_address, target_hash.data());
+            std::cout << "[super] Successfully decoded address to HASH160: ";
+            for(int i = 0; i < 5; i++) {
+                std::cout << "0x" << std::hex << target_hash[i];
+                if(i < 4) std::cout << " ";
+            }
+            std::cout << std::dec << std::endl;
+        } catch(const std::exception& e) {
+            throw std::runtime_error("Failed to decode address " + options_.target_address + ": " + e.what());
+        }
     }
 
     std::optional<checkpoint::Manifest> resume_manifest;
