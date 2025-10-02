@@ -21,6 +21,9 @@ Puzzle71Solver 是一个针对比特币 Puzzle #71 的 GPU 批量密钥搜索引
 git clone https://github.com/<your-org>/Puzzle71Solver.git
 cd Puzzle71Solver
 
+# 初始化依赖（首次部署必需）
+./scripts/setup-dependencies.sh
+
 # 配置并编译 (Release)
 cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
 cmake --build build -j$(nproc)
@@ -156,3 +159,113 @@ ci/determinism_gate.sh
 ## 支持与反馈
 
 如在构建或运行过程中遇到问题，请记录命令输出与相关日志（telemetry、checkpoint manifest），并在提交 Issue 时附上 `benchmarks/latest.json` 与 `docs/validation/evidence` 中的证据文件，便于复现与审计。
+
+## 故障排查
+
+### 问题1: CMakeLists.txt not found in bitcoin-core-secp256k1
+
+**错误信息**:
+```
+CMake Error: The source directory .../third_party/bitcoin-core-secp256k1 does not contain a CMakeLists.txt file.
+```
+
+**解决方案**:
+```bash
+# 方法1: 运行依赖设置脚本
+./scripts/setup-dependencies.sh
+
+# 方法2: 手动初始化子模块
+git submodule update --init --recursive
+
+# 方法3: 直接克隆（如果不是git仓库）
+git clone https://github.com/bitcoin-core/secp256k1.git third_party/bitcoin-core-secp256k1
+```
+
+### 问题2: Could NOT find OpenSSL
+
+**错误信息**:
+```
+Could NOT find OpenSSL (missing: OPENSSL_CRYPTO_LIBRARY OPENSSL_INCLUDE_DIR)
+```
+
+**解决方案**:
+```bash
+# Ubuntu/Debian
+sudo apt-get update
+sudo apt-get install -y libssl-dev
+
+# CentOS/RHEL
+sudo yum install -y openssl-devel
+
+# Alpine Linux
+sudo apk add openssl-dev
+
+# Conda environment
+conda install -y openssl -c conda-forge
+```
+
+### 问题3: WSL2 GPU性能计数器权限
+
+**错误信息**:
+```
+ERR_NVGPUCTRPERM: GPU performance counters disabled
+```
+
+**解决方案**:
+
+WSL2环境默认禁用GPU性能计数器。可使用静态分析替代：
+
+```bash
+# 使用cuobjdump静态分析（WSL2兼容）
+tools/static_analysis/check_register_usage.sh
+
+# 查看结果
+cat docs/validation/evidence/nsight/register_usage.json
+```
+
+如需完整Nsight profiling，请在原生Linux环境运行：
+```bash
+# 原生Linux下启用性能计数器
+sudo nvidia-smi -i 0 -acp UNRESTRICTED
+sudo nvidia-smi -i 0 -pm ENABLED
+
+# 运行Nsight Compute
+ncu --metrics all --export profile.ncu-rep ./build/Puzzle71Solver ...
+```
+
+详细WSL2解决方案参见: `docs/workarounds/nsight_alternatives_wsl2.md`
+
+### 问题4: Benchmark基线对比失败
+
+**错误信息**:
+```
+[error] Median throughput X below baseline threshold Y
+```
+
+**解决方案**:
+
+1. **检查GPU型号是否匹配基线**:
+   ```bash
+   nvidia-smi --query-gpu=name --format=csv,noheader
+   # 确认与 benchmarks/baseline/gpu_baselines_wsl2.json 中的型号一致
+   ```
+
+2. **WSL2环境使用WSL2基线**:
+   ```bash
+   ./scripts/run-benchmarks.sh --baseline benchmarks/baseline/gpu_baselines_wsl2.json
+   ```
+
+3. **创建新基线**（首次部署新GPU）:
+   ```bash
+   # 运行benchmark获取实际性能
+   ./scripts/run-benchmarks.sh --samples 10
+   
+   # 手动添加到基线文件
+   # 编辑 benchmarks/baseline/gpu_baselines_wsl2.json
+   ```
+
+4. **Dry-run模式跳过基线对比**:
+   ```bash
+   ./scripts/run-benchmarks.sh --dry-run-only
+   ```
+
