@@ -488,8 +488,10 @@ void Puzzle71Solver::Run() {
         std::cout << "[WARNING] Super mode enabled - security restrictions bypassed for testing" << std::endl;
     }
 
+    std::cout << "[debug] Detecting CUDA devices..." << std::endl;
     auto device_ids = options_.device_ids;
     const std::uint32_t available_devices = DetectCudaDeviceCount();
+    std::cout << "[debug] Found " << available_devices << " CUDA device(s)" << std::endl;
     if (device_ids.empty()) {
         device_ids.resize(available_devices);
         std::iota(device_ids.begin(), device_ids.end(), 0);
@@ -523,9 +525,12 @@ void Puzzle71Solver::Run() {
         deterministic_rng_ptr = &deterministic_rng;
     }
 
+    std::cout << "[debug] Building schedule for " << device_ids.size() << " device(s)..." << std::endl;
     auto schedule = scheduler::BuildDeterministicSchedule(keyspace_start,
                                                           keyspace_end,
                                                           static_cast<std::uint32_t>(device_ids.size()));
+    std::cout << "[debug] Schedule created with " << schedule.size() << " shard(s)" << std::endl;
+
     for (std::size_t i = 0; i < schedule.size() && i < device_ids.size(); ++i) {
         schedule[i].device_id = static_cast<std::uint32_t>(device_ids[i]);
     }
@@ -538,8 +543,11 @@ void Puzzle71Solver::Run() {
         return;
     }
 
+    std::cout << "[debug] Starting GPU scan..." << std::endl;
     for (const auto& shard : schedule) {
+        std::cout << "[debug] Processing shard [" << shard.start.ToHex() << " : " << shard.end.ToHex() << "]" << std::endl;
         auto partitions = scan::PartitionKeyspace(shard, /*slices=*/1);
+        std::cout << "[debug] Created " << partitions.size() << " partition(s)" << std::endl;
         for (const auto& partition : partitions) {
             auto context = puzzle71::bitcrack_adapter::BuildGpuContext(partition,
                                                                        target_hash,
