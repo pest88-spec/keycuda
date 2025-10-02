@@ -652,7 +652,7 @@ void Puzzle71Solver::Run() {
                     std::string private_key_hex = candidate.private_key.ToHex();
                     std::cout << "Found match: private_key=" << private_key_hex << std::endl;
 
-                    // Generate address using clean Base58 encoding (avoiding BitCrack's broken function)
+                    // Generate address using Hash160 → Base58 conversion
                     std::string address;
                     {
                         // Hash160 is already computed and verified by GPU
@@ -670,21 +670,24 @@ void Puzzle71Solver::Run() {
                         versioned[0] = 0x00;
                         std::memcpy(versioned + 1, hash160, 20);
 
-                        // Compute checksum (double SHA256 of versioned hash)
+                        // Compute checksum using EVP (OpenSSL 3.0 compatible)
                         unsigned char checksum_full[32];
-                        SHA256_CTX sha256;
-                        SHA256_Init(&sha256);
-                        SHA256_Update(&sha256, versioned, 21);
-                        SHA256_Final(checksum_full, &sha256);
-                        SHA256_Init(&sha256);
-                        SHA256_Update(&sha256, checksum_full, 32);
-                        SHA256_Final(checksum_full, &sha256);
+                        EVP_MD_CTX* mdctx = EVP_MD_CTX_new();
+                        EVP_DigestInit_ex(mdctx, EVP_sha256(), nullptr);
+                        EVP_DigestUpdate(mdctx, versioned, 21);
+                        EVP_DigestFinal_ex(mdctx, checksum_full, nullptr);
+                        EVP_DigestInit_ex(mdctx, EVP_sha256(), nullptr);
+                        EVP_DigestUpdate(mdctx, checksum_full, 32);
+                        EVP_DigestFinal_ex(mdctx, checksum_full, nullptr);
+                        EVP_MD_CTX_free(mdctx);
 
                         // Append first 4 bytes of checksum
                         std::memcpy(versioned + 21, checksum_full, 4);
 
-                        // Base58 encode
-                        address = Base58::toBase58(versioned, 25);
+                        // Convert to secp256k1::uint256 for BitCrack Base58
+                        secp256k1::uint256 big_int;
+                        big_int.setBytes(versioned, 25);
+                        address = "1" + Base58::toBase58(big_int);
                         std::cout << "  Generated address: " << address << std::endl;
                     }
 
