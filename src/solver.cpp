@@ -675,10 +675,12 @@ void Puzzle71Solver::Run() {
                     std::string private_key_hex = candidate.private_key.ToHex();
                     std::cout << "Found match: private_key=" << private_key_hex << std::endl;
 
-                    // Generate address using Hash160 → Base58 conversion (pure implementation)
+                    // Generate address - minimal safe implementation
+                    // BitCrack's Address::fromPublicKey causes memory corruption on H20
+                    // Root cause: Base58::toBase58() internal buffer management issue
                     std::string address;
                     {
-                        // Hash160 is already computed and verified by GPU
+                        // Reuse GPU-computed and CPU-verified Hash160 (candidate.digest[5])
                         unsigned char hash160[20];
                         for (int i = 0; i < 5; ++i) {
                             unsigned int word = candidate.digest[i];
@@ -688,12 +690,12 @@ void Puzzle71Solver::Run() {
                             hash160[i*4 + 3] = word & 0xFF;
                         }
 
-                        // Add version byte (0x00 for mainnet P2PKH)
+                        // Build versioned payload: [version(1)] + [hash160(20)] + [checksum(4)]
                         unsigned char versioned[25];
-                        versioned[0] = 0x00;
+                        versioned[0] = 0x00;  // Bitcoin mainnet P2PKH version byte
                         std::memcpy(versioned + 1, hash160, 20);
 
-                        // Compute checksum using EVP (OpenSSL 3.0 compatible)
+                        // Compute checksum: SHA256(SHA256(version + hash160))[0:4]
                         unsigned char checksum_full[32];
                         EVP_MD_CTX* mdctx = EVP_MD_CTX_new();
                         EVP_DigestInit_ex(mdctx, EVP_sha256(), nullptr);
@@ -703,26 +705,19 @@ void Puzzle71Solver::Run() {
                         EVP_DigestUpdate(mdctx, checksum_full, 32);
                         EVP_DigestFinal_ex(mdctx, checksum_full, nullptr);
                         EVP_MD_CTX_free(mdctx);
-
-                        // Append first 4 bytes of checksum
                         std::memcpy(versioned + 21, checksum_full, 4);
 
-                        // Pure Base58 encoding (avoiding BitCrack's toxic implementation)
+                        // Base58 encoding (pure byte-array implementation, no BigInt)
                         static const char* base58_chars = "123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz";
                         std::string b58;
-
-                        // Count leading zeros
                         int leading_zeros = 0;
                         for (int i = 0; i < 25 && versioned[i] == 0; ++i) {
                             leading_zeros++;
                         }
 
-                        // Convert to base58
                         unsigned char temp[25];
                         std::memcpy(temp, versioned, 25);
-
                         while (true) {
-                            // Check if all zeros
                             bool all_zero = true;
                             for (int i = 0; i < 25; ++i) {
                                 if (temp[i] != 0) {
@@ -732,7 +727,6 @@ void Puzzle71Solver::Run() {
                             }
                             if (all_zero) break;
 
-                            // Divide by 58, remainder becomes next digit
                             int remainder = 0;
                             for (int i = 0; i < 25; ++i) {
                                 int current = remainder * 256 + temp[i];
@@ -742,12 +736,10 @@ void Puzzle71Solver::Run() {
                             b58 = base58_chars[remainder] + b58;
                         }
 
-                        // Add '1' for each leading zero byte
                         address = std::string(leading_zeros, '1') + b58;
                         std::cout << "  Generated address: " << address << std::endl;
                     }
 
-                    // Save private key (critical data)
                     AppendLuckEntry(private_key_hex, address);
 
                     // Skip parity_records_ to avoid H20 memory corruption during cleanup
