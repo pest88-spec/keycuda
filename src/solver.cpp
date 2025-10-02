@@ -449,7 +449,8 @@ void Puzzle71Solver::Run() {
         Hash::hashPublicKeyCompressed(point, digest_words);
         target_hash = DigestArray(digest_words);
 
-        options_.target_address = Address::fromPublicKey(point, /*compressed=*/true);
+        // Skip toxic Address::fromPublicKey (H20 memory corruption)
+        // Address is already provided via --target-address parameter
 
         std::cout << "[parity] Override scalar=" << parity_scalar_override->ToHex()
                   << " address=" << options_.target_address << std::endl;
