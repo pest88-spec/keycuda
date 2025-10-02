@@ -648,7 +648,18 @@ void Puzzle71Solver::Run() {
                         throw std::runtime_error("CPU parity mismatch for candidate");
                     }
 
-                    std::string address = Address::fromPublicKey(point, candidate.is_compressed);
+                    // HOTFIX: Use Base58 directly from derived->address to avoid BitCrack memory issue
+                    std::string address;
+                    try {
+                        address = Address::fromPublicKey(point, candidate.is_compressed);
+                    } catch (...) {
+                        // Fallback: use secp256k1 derived address
+                        address = std::string(reinterpret_cast<const char*>(derived->address.data()));
+                    }
+
+                    // Print immediately before AppendLuckEntry (avoid crash)
+                    std::cout << "Found match: " << candidate.private_key.ToHex() << " -> " << address << std::endl;
+
                     AppendLuckEntry(candidate.private_key.ToHex(), address);
 
                     ParityRecord record{};
