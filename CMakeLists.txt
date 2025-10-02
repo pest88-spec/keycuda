@@ -125,6 +125,11 @@ set(BITCRACK_SOURCES
 
 target_sources(Puzzle71Solver PRIVATE ${BITCRACK_SOURCES})
 
+# Suppress third-party library warnings (BitCrack)
+set_source_files_properties(${BITCRACK_SOURCES} PROPERTIES
+  COMPILE_FLAGS "-w"  # Disable all warnings for third-party code
+)
+
 # Enable testing / GoogleTest via FetchContent
 include(FetchContent)
 FetchContent_Declare(
