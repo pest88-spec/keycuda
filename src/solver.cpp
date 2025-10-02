@@ -43,13 +43,9 @@
 #include <openssl/evp.h>
 #include <openssl/rand.h>
 #include <openssl/sha.h>
-#include <openssl/evp.h>
 
 #include <cuda_runtime.h>
-
-#include <sys/types.h>
-#include <sys/wait.h>
-#include <unistd.h>
+#include <cstring>
 
 namespace puzzle71 {
 
@@ -656,30 +652,40 @@ void Puzzle71Solver::Run() {
                     std::string private_key_hex = candidate.private_key.ToHex();
                     std::cout << "Found match: private_key=" << private_key_hex << std::endl;
 
-                    // WORKAROUND: BitCrack's Address::fromPublicKey is broken on H20
-                    // Skip address generation entirely to avoid memory corruption
-                    std::string address = "VERIFY_WITH_WALLET";
-
-                    if (options_.parity_test_scalar_hex) {
-                        // For parity test only: try address generation with full isolation
-                        pid_t pid = fork();
-                        if (pid == 0) {
-                            // Child process: attempt address generation
-                            try {
-                                std::string addr = Address::fromPublicKey(point, candidate.is_compressed);
-                                std::cout << "  Generated address: " << addr << std::endl;
-                                _exit(0);
-                            } catch (...) {
-                                _exit(1);
-                            }
-                        } else if (pid > 0) {
-                            // Parent: wait for child
-                            int status;
-                            waitpid(pid, &status, 0);
-                            if (WIFEXITED(status) && WEXITSTATUS(status) == 0) {
-                                address = "PARITY_TEST_PASSED";
-                            }
+                    // Generate address using clean Base58 encoding (avoiding BitCrack's broken function)
+                    std::string address;
+                    {
+                        // Hash160 is already computed and verified by GPU
+                        unsigned char hash160[20];
+                        for (int i = 0; i < 5; ++i) {
+                            unsigned int word = candidate.digest[i];
+                            hash160[i*4 + 0] = (word >> 24) & 0xFF;
+                            hash160[i*4 + 1] = (word >> 16) & 0xFF;
+                            hash160[i*4 + 2] = (word >> 8) & 0xFF;
+                            hash160[i*4 + 3] = word & 0xFF;
                         }
+
+                        // Add version byte (0x00 for mainnet P2PKH)
+                        unsigned char versioned[25];
+                        versioned[0] = 0x00;
+                        std::memcpy(versioned + 1, hash160, 20);
+
+                        // Compute checksum (double SHA256 of versioned hash)
+                        unsigned char checksum_full[32];
+                        SHA256_CTX sha256;
+                        SHA256_Init(&sha256);
+                        SHA256_Update(&sha256, versioned, 21);
+                        SHA256_Final(checksum_full, &sha256);
+                        SHA256_Init(&sha256);
+                        SHA256_Update(&sha256, checksum_full, 32);
+                        SHA256_Final(checksum_full, &sha256);
+
+                        // Append first 4 bytes of checksum
+                        std::memcpy(versioned + 21, checksum_full, 4);
+
+                        // Base58 encode
+                        address = Base58::toBase58(versioned, 25);
+                        std::cout << "  Generated address: " << address << std::endl;
                     }
 
                     // Save private key (critical data)
