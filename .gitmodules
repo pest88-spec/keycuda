@@ -1,0 +1,19 @@
+[submodule "third_party/bitcoin-core-secp256k1"]
+	path = third_party/bitcoin-core-secp256k1
+	url = https://github.com/bitcoin-core/secp256k1.git
+
+[submodule "third_party/BitCrack"]
+	path = third_party/BitCrack
+	url = https://github.com/brichard19/BitCrack.git
+
+[submodule "third_party/CudaBrainSecp"]
+	path = third_party/CudaBrainSecp
+	url = https://github.com/XopMC/CudaBrainSecp.git
+
+[submodule "third_party/secp256k1-zkp"]
+	path = third_party/secp256k1-zkp
+	url = https://github.com/ElementsProject/secp256k1-zkp.git
+
+[submodule "third_party/VanitySearch"]
+	path = third_party/VanitySearch
+	url = https://github.com/JeanLucPons/VanitySearch.git
