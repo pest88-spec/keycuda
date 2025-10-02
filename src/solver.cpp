@@ -727,13 +727,8 @@ void Puzzle71Solver::Run() {
                     // Save private key (critical data)
                     AppendLuckEntry(private_key_hex, address);
 
-                    // Store record
-                    ParityRecord record{};
-                    record.scalar = candidate.private_key;
-                    record.digest = candidate.digest;
-                    record.address = address;
-                    record.is_compressed = candidate.is_compressed;
-                    parity_records_.push_back(std::move(record));
+                    // Skip parity_records_ to avoid H20 memory corruption during cleanup
+                    // The critical data (private key + address) is already saved to disk
                 }
 
                 puzzle71::telemetry::TelemetryOptions telemetry_opts{};
