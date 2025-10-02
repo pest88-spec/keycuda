@@ -414,7 +414,8 @@ std::array<std::uint32_t, 5> DigestArray(const unsigned int digest[5]) {
 Puzzle71Solver::Puzzle71Solver(SolverOptions options) : options_(std::move(options)) {}
 
 void Puzzle71Solver::Run() {
-    parity_records_.clear();
+    // CRITICAL: Do NOT call parity_records_.clear() - causes memory corruption on H20
+    // ParityRecord contains BitCrack Address objects with unsafe destructors
 
     std::array<std::uint32_t, 5> target_hash = constants::kTargetHash160;
     std::optional<core::UInt256> parity_scalar_override;
