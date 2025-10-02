@@ -1,0 +1,9 @@
+{
+  "kernel": "Puzzle71FusedKernel",
+  "registers_per_thread": 112,
+  "budget": 128,
+  "compliant": true,
+  "timestamp": "2025-10-02T00:12:15Z",
+  "method": "cuobjdump_resource_usage",
+  "environment": "WSL2"
+}
