@@ -1,0 +1,14 @@
+Timestamp: 2024-09-26T08:14:52Z (CI replay)
+Task: T029 – Puzzle71 fused kernel implementation
+Command: ctest -R puzzle71_gpu_kernel --output-on-failure
+Exit Code: 1
+
+stderr:
+[ RUN      ] puzzle71_gpu_kernel.fused_batch_step_fails_without_kernel
+/home/ci/build/tests/unit/test_kernel_interfaces.cu:112: Failure
+Expected equality of these values:
+  1
+  launch_status
+With actual launch_status = 0
+
+Note: This log was archived from the failing CI run prior to implementing Puzzle71FusedKernel.

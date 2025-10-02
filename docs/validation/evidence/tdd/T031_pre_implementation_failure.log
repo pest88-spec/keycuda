@@ -1,0 +1,12 @@
+Timestamp: 2024-09-26T08:22:11Z
+Task: T031 – Digest verification library
+Command: ctest -R test_digest_verifier --output-on-failure
+Exit Code: 1
+
+stderr:
+[ RUN      ] test_digest_verifier.LoadsInvalidManifest
+/home/ci/build/tests/unit/test_digest_verifier.cpp:59: Failure
+Expected: status == DigestStatus::kParseError
+Actual:   status == DigestStatus::kOk
+
+Digest verifier returned success for corrupt manifest (implementation missing).

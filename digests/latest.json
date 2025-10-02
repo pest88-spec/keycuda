@@ -8,13 +8,14 @@
   "checkpoints/payload-0xa00-2025-09-28T23:57:43Z.chk": "31dcdfa378fc4b77f88b5c0349a7254b745e5635c0ff55295d0f6e322e543431",
   "checkpoints/payload-0xa00-2025-09-29T00:31:36Z.chk": "f9469a8e1dea1dfc9477ea62117a3e2885a4b506c6261957b139307d8e265d0c",
   "telemetry/puzzle71solver-placeholder.jsonl": "0f61fd54f6767acbf9637e5d49ef5d711360846b7cae3961c9bcf4311c6647cf",
+  "benchmarks/baseline/gpu_baselines_wsl2.json": "ef352142dd87369b36801db29b48358ddf060466ff68d342d8ab65940bd0583c",
   "benchmarks/benchmark.log": "6b3905919c243d436827f6d710de3b7320f229fad4a06af3108af72ad3311fc3",
   "benchmarks/gpu_monitor_large_test.log": "6bc80c6e33eedb3e3ede28ecca922a540dc8941a704dbec72ef1c43da94f03d8",
   "benchmarks/gpu_monitor_medium_test.log": "c15fbd0faf8680c073cb0f7cd411e05e1576d353093b5422c0242aaae4373949",
   "benchmarks/gpu_monitor_quick_test.log": "efd761b66a0ab2df6e61ce2a69e9bfb4ba539ba74546a898fd015fffa189eff7",
   "benchmarks/large_test.json": "f5008876364a505dd463f67398f9703a89fb11f6029d6c0f2840c1af22330f30",
   "benchmarks/large_test_gpu_stats.json": "741e43ed8308b715d3c5038591c0da437169822298eaaa0f01b31942e49a5349",
-  "benchmarks/latest.json": "2a9b4170487caf6fde563219046d1371615618c911904a8d00c286824e5265fd",
+  "benchmarks/latest.json": "e3440addc9aaae0356a2eb2a893ed8faa3ebf3b1b1f5f0d95f4a7df694d5dd16",
   "benchmarks/medium_test.json": "81825f70643e601128984da20978a09f356419cedcb797bb1fd58e56f4e09376",
   "benchmarks/medium_test_gpu_stats.json": "59caee6e0b8f68ea77bd1ee7be2e7032e59e553fe380b480233cb133561d8146",
   "benchmarks/quick_test.json": "cf9235f77f17a24e4016a2631cb7793a089816fcd044a9fd99eb0b839d4ac7b6",
@@ -23,5 +24,7 @@
   "reports/puzzle71-run-20250926.md": "9eec3934de52059eee4bf1d98274f0a1613599c9572134768704fd8423565d39",
   "reports/puzzle71-run-20250928.md": "048d550a1205d1f508ab18734ad631bc8779449e1e389aa25ce653970d0516f8",
   "reports/puzzle71-run-20250929.md": "f5596fb186c899093e15a923da99a4f26be3aa42382287ec61251effae14c18b",
-  "reports/puzzle71-run-20250930.md": "4ebf268babd36d56f3a4a1e4d6fe79f02e92eb0c9c51e3c755bc2f0c1fb5405d"
+  "reports/puzzle71-run-20250930.md": "4ebf268babd36d56f3a4a1e4d6fe79f02e92eb0c9c51e3c755bc2f0c1fb5405d",
+  "reports/puzzle71-run-20251001.md": "cff64ba1737df97fb022e89f790fabf89ea8e538aff878b12b05833a8a8607db",
+  "reports/puzzle71-run-20251002.md": "9b8d75e1a8d22209eb10aeb545c9c0ef5af60bf6a04274d700d1b5c66efa7c5d"
 }

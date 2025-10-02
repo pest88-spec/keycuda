@@ -1,0 +1,30 @@
+{
+  "timestamp": "2025-10-02T04:26:42Z",
+  "devices": "0",
+  "gpu_model": "NVIDIA GeForce RTX 2080 Ti",
+  "warmup_runs": 1,
+  "samples": 3,
+  "keyspace": "0x400000000000000000:0x40000000000000FFFF",
+  "dry_run": false,
+  "results": [
+    {
+      "index": 1,
+      "keys_per_sec": 65536000.0
+    },
+    {
+      "index": 2,
+      "keys_per_sec": 65536000.0
+    },
+    {
+      "index": 3,
+      "keys_per_sec": 32768000.0
+    }
+  ],
+  "stats": {
+    "min": 32768000.0,
+    "max": 65536000.0,
+    "median": 65536000.0,
+    "mean": 54613333.333333336,
+    "stdev": 18918613.62080566
+  }
+}

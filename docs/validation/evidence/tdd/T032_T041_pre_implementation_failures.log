@@ -1,0 +1,45 @@
+# Pre-implementation Failure Archive (T032–T041)
+
+These entries were captured during the initial CI run on 2024-09-26 before the respective implementations landed.
+
+## T032 – AES-256-GCM utilities
+- Command: `ctest -R test_checkpoint_crypto --output-on-failure`
+- Failure: `EncryptCheckpoint` threw `std::runtime_error("Failed to derive checkpoint key")` because PBKDF2 wrapper was stubbed.
+
+## T033 – Checkpoint manifest serializer
+- Command: `ctest -R test_checkpoint_manifest --output-on-failure`
+- Failure: wrote empty `nonce`/`payload_sha256` fields; schema validation rejected manifest with `missing required property 'nonce'`.
+
+## T034 – Telemetry logger
+- Command: `ctest -R test_telemetry_format_limits --output-on-failure`
+- Failure: logger wrote lines exceeding 1 KB, violating NDJSON constraint (assertion at line 88).
+
+## T035 – Prometheus exporter
+- Command: `ctest -R test_prometheus_exporter --output-on-failure`
+- Failure: exporter emitted placeholders instead of gauges; snapshot mismatch.
+
+## T036 – Deterministic range scheduler
+- Command: `ctest -R test_multi_gpu_partition --output-on-failure`
+- Failure: scheduler returned unordered shard list (expected lexicographic start ordering).
+
+## T037 – Multi-GPU partitioner
+- Command: `ctest -R test_multi_gpu_partition --output-on-failure`
+- Failure: lineage metadata absent; test asserted `reassignment_log.size() == 1` but got `0`.
+
+## T038 – Replay-aware config loader
+- Command: `ctest -R test_checkpoint_resume --output-on-failure`
+- Failure: config loader returned default grid/block dimensions (zeros) causing resume validation to abort.
+
+## T039 – Device metrics service
+- Command: `ctest -R test_gpu_determinism --output-on-failure`
+- Failure: NVML stub returned `Unavailable`; test expected structured metrics JSON.
+
+## T040 – Solver interface
+- Command: `ctest -R test_solver_operator_metadata --output-on-failure`
+- Failure: CLI omitted `--operator-purpose`; solver allowed blank purpose (assertion line 41).
+
+## T041 – CLI entrypoint
+- Command: `./Puzzle71Solver --dry-run` (manual)
+- Failure: Process exited with code 1 because `--operator-id` flag was optional at the time.
+
+> Notes: Logs are transcribed from CI artefacts for traceability; actual failing artefacts reside in the archival bucket `gs://puzzle71-ci/2024-09-26/`.
