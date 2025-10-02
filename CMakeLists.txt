@@ -54,7 +54,11 @@ set(PUZZLE71_CORE_SOURCES
 
 add_executable(Puzzle71Solver ${PUZZLE71_CORE_SOURCES})
 set_target_properties(Puzzle71Solver PROPERTIES ENABLE_EXPORTS ON)
+
+# Find CUDA and add include directories for both .cu and .cpp files
+find_package(CUDAToolkit REQUIRED)
 target_include_directories(Puzzle71Solver PRIVATE
+  ${CUDAToolkit_INCLUDE_DIRS}
   src
   src/models
   src/utils
@@ -77,6 +81,7 @@ target_include_directories(Puzzle71Solver PRIVATE
   third_party/BitCrack/Logger
   third_party/BitCrack/secp256k1lib
 )
+target_link_libraries(Puzzle71Solver PRIVATE CUDA::cudart)
 
 if(SECP256K1_AVAILABLE)
   target_compile_definitions(Puzzle71Solver PRIVATE SECP256K1_AVAILABLE=1)
@@ -91,8 +96,13 @@ endif()
 
 set_target_properties(Puzzle71Solver PROPERTIES CUDA_ARCHITECTURES "75;86;89")
 
+# Link dependencies (order matters: CUDA runtime must be linked before OpenSSL)
 find_package(OpenSSL REQUIRED)
-target_link_libraries(Puzzle71Solver PRIVATE OpenSSL::SSL OpenSSL::Crypto nlohmann_json::nlohmann_json)
+target_link_libraries(Puzzle71Solver PRIVATE
+  OpenSSL::SSL
+  OpenSSL::Crypto
+  nlohmann_json::nlohmann_json
+)
 
 set(BITCRACK_SOURCES
   third_party/BitCrack/CudaKeySearchDevice/CudaAtomicList.cu
