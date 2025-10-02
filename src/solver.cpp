@@ -461,11 +461,12 @@ void Puzzle71Solver::Run() {
         std::cout << std::dec << std::endl;
     }
 
-    if (!options_.parity_test_scalar_hex &&
+    // Security validation (can be bypassed with --super mode for testing)
+    if (!options_.super_mode && !options_.parity_test_scalar_hex &&
         !constants::IsCanonicalTargetAddress(options_.target_address)) {
         std::ostringstream oss;
         oss << "Target address " << options_.target_address
-            << " does not match canonical Puzzle #71 address";
+            << " does not match canonical Puzzle #71 address. Use --super to override.";
         throw std::runtime_error(oss.str());
     }
 
@@ -475,12 +476,16 @@ void Puzzle71Solver::Run() {
         throw std::runtime_error("Invalid keyspace: start must be < end");
     }
 
-    if (!options_.parity_test_scalar_hex) {
+    if (!options_.super_mode && !options_.parity_test_scalar_hex) {
         const auto canonical_start = ParseKeyspaceHex(constants::kDefaultKeyspace.start_hex);
         const auto canonical_end = ParseKeyspaceHex(constants::kDefaultKeyspace.end_hex);
         if (keyspace_start.Compare(canonical_start) < 0 || keyspace_end.Compare(canonical_end) > 0) {
-            throw std::runtime_error("Keyspace outside authorised Puzzle #71 range");
+            throw std::runtime_error("Keyspace outside authorised Puzzle #71 range. Use --super to override.");
         }
+    }
+
+    if (options_.super_mode) {
+        std::cout << "[WARNING] Super mode enabled - security restrictions bypassed for testing" << std::endl;
     }
 
     auto device_ids = options_.device_ids;
