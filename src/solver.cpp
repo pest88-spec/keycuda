@@ -685,8 +685,17 @@ void Puzzle71Solver::Run() {
                         std::memcpy(versioned + 21, checksum_full, 4);
 
                         // Convert to secp256k1::uint256 for BitCrack Base58
+                        // BitCrack uint256 uses v[8] array (8 x 32-bit words) in specific byte order
                         secp256k1::uint256 big_int;
-                        big_int.setBytes(versioned, 25);
+                        std::memset(big_int.v, 0, sizeof(big_int.v));
+
+                        // Pack 25 bytes into 8 uint32_t words (big-endian to match BitCrack)
+                        for (int i = 0; i < 25; ++i) {
+                            int word_idx = i / 4;
+                            int byte_pos = i % 4;
+                            big_int.v[word_idx] |= static_cast<uint32_t>(versioned[24 - i]) << (byte_pos * 8);
+                        }
+
                         address = "1" + Base58::toBase58(big_int);
                         std::cout << "  Generated address: " << address << std::endl;
                     }
