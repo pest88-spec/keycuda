@@ -419,6 +419,15 @@ void Puzzle71Solver::Run() {
     std::array<std::uint32_t, 5> target_hash = constants::kTargetHash160;
     std::optional<core::UInt256> parity_scalar_override;
 
+    // In super mode, compute target hash from provided address (not Puzzle #71 constant)
+    if (options_.super_mode && !options_.parity_test_scalar_hex) {
+        std::cout << "[super] Computing target hash from address: " << options_.target_address << std::endl;
+        // TODO: Need to decode Base58 address to get Hash160
+        // For now, throw error to indicate this needs implementation
+        throw std::runtime_error("Super mode requires --parity-test-scalar to derive target hash. "
+                                "Use: --parity-test-scalar <known_private_key> to test algorithm.");
+    }
+
     std::optional<checkpoint::Manifest> resume_manifest;
     bool resume_consumed = true;
     gpu::BatchConfig resume_config{};
