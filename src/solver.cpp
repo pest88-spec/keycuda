@@ -24,6 +24,7 @@
 
 #include <algorithm>
 #include <chrono>
+#include <cmath>
 #include <numeric>
 #include <random>
 #include <unordered_set>
@@ -86,13 +87,14 @@ std::string FormatKeyRate(double keys_per_sec) {
     return oss.str();
 }
 
-std::string FormatDurationMs(std::uint64_t ms) {
-    if (ms == 0) {
+std::string FormatDurationMs(double ms) {
+    if (ms <= 0.0) {
         return "0.00s";
     }
-    std::uint64_t hours = ms / 3'600'000;
-    std::uint64_t minutes = (ms % 3'600'000) / 60'000;
-    double seconds = (ms % 60'000) / 1000.0;
+    double total_seconds = ms / 1000.0;
+    std::uint64_t hours = static_cast<std::uint64_t>(total_seconds) / 3600;
+    std::uint64_t minutes = (static_cast<std::uint64_t>(total_seconds) % 3600) / 60;
+    double seconds = total_seconds - static_cast<double>(hours) * 3600.0 - static_cast<double>(minutes) * 60.0;
     std::ostringstream oss;
     bool printed = false;
     if (hours > 0) {
@@ -563,7 +565,7 @@ void Puzzle71Solver::Run() {
 
     struct RunMetrics {
         std::uint64_t total_keys{0};
-        std::uint64_t total_elapsed_ms{0};
+        double total_elapsed_ms{0.0};
         std::uint64_t batches{0};
         double peak_keys_per_sec{0.0};
     } metrics;
@@ -576,16 +578,18 @@ void Puzzle71Solver::Run() {
         auto partitions = scan::PartitionKeyspace(shard, /*slices=*/1);
         DebugLog(options_, "[debug] Created " + std::to_string(partitions.size()) + " partition(s)");
         for (const auto& partition : partitions) {
-            auto context = puzzle71::bitcrack_adapter::BuildGpuContext(partition,
-                                                                       target_hash,
-                                                                       /*compressed=*/true);
+                DebugLog(options_, "[debug] Partition [" + partition.start.ToHex() + " : " + partition.end.ToHex() + "]");
+                auto context = puzzle71::bitcrack_adapter::BuildGpuContext(partition,
+                                                                           target_hash,
+                                                                           /*compressed=*/true,
+                                                                           options_.verbose);
             auto& walker = context.walker;
             auto& planner = context.planner;
             auto& executor = context.executor;
 
             std::uint64_t desired_keys_hint = deterministic_launch_config
                                                    ? deterministic_launch_config->keys_total
-                                                   : 1'048'576ULL;
+                                                   : 67'108'864ULL;
 
             bool use_resume_config = false;
             if (resume_manifest && !resume_consumed) {
@@ -627,8 +631,13 @@ void Puzzle71Solver::Run() {
                     break;
                 }
 
+                DebugLog(options_, "[debug] Planned batch keys=" + std::to_string(batch_cfg.keys_total));
                 executor.PrepareBatch(batch_cfg, chunk_start);
+                DebugLog(options_, "[debug] Prepared batch starting at " + chunk_start.ToHex());
                 auto step = executor.Execute();
+                DebugLog(options_, "[debug] Execute result: processed=" + std::to_string(step.processed_keys) +
+                                         " elapsed_us=" + std::to_string(step.elapsed_us) +
+                                         " candidates=" + std::to_string(step.candidates.size()));
                 const auto& gpu_results = step.candidates;
                 if (options_.parity_test_scalar_hex) {
                     std::cout << "[parity] GPU returned " << gpu_results.size() << " candidate(s)" << std::endl;
@@ -643,13 +652,14 @@ void Puzzle71Solver::Run() {
                 }
 
                 double batch_rate = step.keys_per_sec;
-                if (batch_rate <= 0.0 && step.elapsed_ms > 0) {
-                    batch_rate = static_cast<double>(processed) * 1000.0 /
-                                  static_cast<double>(step.elapsed_ms);
+                double batch_ms = step.elapsed_us / 1000.0;
+                if (batch_rate <= 0.0 && step.elapsed_us > 0) {
+                    batch_rate = static_cast<double>(processed) * 1'000'000.0 /
+                                  static_cast<double>(step.elapsed_us);
                 }
                 metrics.total_keys += processed;
-                if (step.elapsed_ms > 0) {
-                    metrics.total_elapsed_ms += step.elapsed_ms;
+                if (batch_ms > 0.0) {
+                    metrics.total_elapsed_ms += batch_ms;
                 }
                 ++metrics.batches;
                 if (batch_rate > metrics.peak_keys_per_sec) {
@@ -658,13 +668,13 @@ void Puzzle71Solver::Run() {
 
                 double avg_rate = (metrics.total_elapsed_ms > 0)
                                        ? static_cast<double>(metrics.total_keys) * 1000.0 /
-                                             static_cast<double>(metrics.total_elapsed_ms)
+                                             metrics.total_elapsed_ms
                                        : 0.0;
 
                 std::cout << "[status] batch " << metrics.batches
                           << " | chunk=" << chunk_start.ToHex()
                           << " | size=" << FormatKeyCount(processed)
-                          << " | elapsed=" << FormatDurationMs(step.elapsed_ms)
+                          << " | elapsed=" << FormatDurationMs(batch_ms)
                           << " | rate=" << FormatKeyRate(batch_rate)
                           << " | total=" << FormatKeyCount(metrics.total_keys)
                           << " | avg=" << FormatKeyRate(avg_rate)
@@ -751,7 +761,7 @@ void Puzzle71Solver::Run() {
                                                                chunk_end,
                                                                processed,
                                                                next_scalar,
-                                                               step.elapsed_ms,
+                                                               static_cast<std::uint64_t>(std::round(batch_ms)),
                                                                gpu_results.size());
                 puzzle71::telemetry::LogTelemetryLine(telemetry_opts, telemetry_payload);
 
@@ -809,11 +819,11 @@ void Puzzle71Solver::Run() {
                 }
                 walker.Advance(processed);
 
-                if (step.elapsed_ms > 0 && processed > 0) {
+                if (step.elapsed_us > 0 && processed > 0) {
                     double keys_per_sec = step.keys_per_sec;
                     if (keys_per_sec <= 0.0) {
-                        keys_per_sec = static_cast<double>(processed) * 1000.0 /
-                                       static_cast<double>(step.elapsed_ms);
+                        keys_per_sec = static_cast<double>(processed) * 1'000'000.0 /
+                                       static_cast<double>(step.elapsed_us);
                     }
                     const double target_ms = 25.0;
                     const double target_keys = keys_per_sec * (target_ms / 1000.0);
@@ -829,10 +839,11 @@ void Puzzle71Solver::Run() {
     }
 
     auto wall_end = std::chrono::steady_clock::now();
-    auto wall_ms = static_cast<std::uint64_t>(
-        std::chrono::duration_cast<std::chrono::milliseconds>(wall_end - wall_start).count());
-    double avg_rate_wall = wall_ms > 0
-                               ? static_cast<double>(metrics.total_keys) * 1000.0 / static_cast<double>(wall_ms)
+    double wall_ms = static_cast<double>(
+        std::chrono::duration_cast<std::chrono::microseconds>(wall_end - wall_start).count()) /
+        1000.0;
+    double avg_rate_wall = wall_ms > 0.0
+                               ? static_cast<double>(metrics.total_keys) * 1000.0 / wall_ms
                                : 0.0;
 
     std::cout << "[summary] total=" << FormatKeyCount(metrics.total_keys)

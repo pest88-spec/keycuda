@@ -27,6 +27,7 @@ struct GpuContext {
 
 GpuContext BuildGpuContext(const scheduler::Shard& shard,
                            const std::array<std::uint32_t, 5>& target_hash,
-                           bool compressed);
+                           bool compressed,
+                           bool verbose);
 
 }  // namespace puzzle71::bitcrack_adapter

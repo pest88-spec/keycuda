@@ -203,7 +203,7 @@ KernelLaunchConfig ChooseLaunchConfig(std::uint64_t desired_threads) {
     // Use occupancy API to get optimal block size
     int min_grid = 0;
     int block_size = 0;
-    cudaError_t occ_status = cudaOccupancyMaxPotentialBlockSize(&min_grid, &block_size, keyFinderKernel, 0, 0);
+    cudaError_t occ_status = cudaOccupancyMaxPotentialBlockSize(&min_grid, &block_size, Puzzle71FusedKernel, 0, 0);
     if (occ_status != cudaSuccess || block_size <= 0) {
         block_size = std::min(static_cast<int>(device_props.maxThreadsPerBlock), 1024);
     }

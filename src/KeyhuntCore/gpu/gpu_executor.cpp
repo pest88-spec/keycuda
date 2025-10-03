@@ -42,26 +42,35 @@ void FinalizePrivateKey(core::UInt256* out,
 
 GpuExecutor::GpuExecutor(int device_id,
                          bool compressed,
-                         const std::array<std::uint32_t, 5>& target_hash160)
-    : device_id_(device_id), compressed_(compressed) {
-    std::cout << "[debug] GpuExecutor: Setting device " << device_id << std::endl;
+                         const std::array<std::uint32_t, 5>& target_hash160,
+                         bool verbose)
+    : device_id_(device_id), compressed_(compressed), verbose_(verbose) {
+    if (verbose_) {
+        std::cout << "[debug] GpuExecutor: Setting device " << device_id << std::endl;
+    }
 
     cudaError_t err = cudaSetDevice(device_id_);
     if (err != cudaSuccess) {
         throw std::runtime_error(std::string("cudaSetDevice failed: ") + cudaGetErrorString(err));
     }
 
-    std::cout << "[debug] GpuExecutor: Getting device properties..." << std::endl;
+    if (verbose_) {
+        std::cout << "[debug] GpuExecutor: Getting device properties..." << std::endl;
+    }
     if (cudaGetDeviceProperties(&props_, device_id_) != cudaSuccess) {
         throw std::runtime_error("cudaGetDeviceProperties failed");
     }
 
-    std::cout << "[debug] GpuExecutor: Uploading target HASH160..." << std::endl;
+    if (verbose_) {
+        std::cout << "[debug] GpuExecutor: Uploading target HASH160..." << std::endl;
+    }
     auto status = puzzle71::compare::UploadTargetHash160(target_hash160);
     if (status != cudaSuccess) {
         throw std::runtime_error(std::string("Failed to upload target HASH160: ") + cudaGetErrorString(status));
     }
-    std::cout << "[debug] GpuExecutor: Constructor complete" << std::endl;
+    if (verbose_) {
+        std::cout << "[debug] GpuExecutor: Constructor complete" << std::endl;
+    }
 }
 
 GpuExecutor::~GpuExecutor() {
@@ -152,6 +161,14 @@ void GpuExecutor::PrepareBatch(const BatchConfig& config,
     }
     config_.keys_total = computed_total;
 
+    if (verbose_) {
+        std::cout << "[debug] PrepareBatch grid=" << config_.grid.x
+                  << " block=" << config_.block.x
+                  << " points/thread=" << config_.points_per_thread
+                  << " keys_total=" << config_.keys_total
+                  << " start=" << start_scalar.ToHex() << std::endl;
+    }
+
     host_scalars_.Configure(config_.grid, config_.block, config_.points_per_thread);
     DeviceBatch batch = host_scalars_.PrepareBatch(batch_start_, config_.keys_total);
 
@@ -184,17 +201,31 @@ StepResult GpuExecutor::Execute() {
     CheckCuda(cudaMemset(device_candidate_count_.data(), 0, sizeof(std::uint32_t)),
               "cudaMemset(result_count)");
 
-    auto start = std::chrono::steady_clock::now();
-    CheckCuda(puzzle71::kernel::LaunchFusedKernel(config_.grid,
-                                                  config_.block,
-                                                  config_.points_per_thread,
-                                                  compression_flag),
-              "LaunchFusedKernel");
-    CheckCuda(cudaDeviceSynchronize(), "cudaDeviceSynchronize");
-    auto end = std::chrono::steady_clock::now();
+    if (verbose_) {
+        std::cout << "[debug] Launching fused kernel grid=" << config_.grid.x
+                  << " block=" << config_.block.x
+                  << " points/thread=" << config_.points_per_thread << std::endl;
+    }
+    auto start = std::chrono::high_resolution_clock::now();
+    auto launch_status = puzzle71::kernel::LaunchFusedKernel(config_.grid,
+                                                             config_.block,
+                                                             config_.points_per_thread,
+                                                             compression_flag);
+    if (launch_status != cudaSuccess) {
+        throw std::runtime_error(std::string("LaunchFusedKernel failed: ") + cudaGetErrorString(launch_status));
+    }
 
-    result.elapsed_ms = static_cast<std::uint64_t>(
-        std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count());
+    auto sync_status = cudaDeviceSynchronize();
+    if (sync_status != cudaSuccess) {
+        throw std::runtime_error(std::string("cudaDeviceSynchronize failed: ") + cudaGetErrorString(sync_status));
+    }
+    if (verbose_) {
+        std::cout << "[debug] Kernel completed" << std::endl;
+    }
+    auto end = std::chrono::high_resolution_clock::now();
+
+    result.elapsed_us = static_cast<std::uint64_t>(
+        std::chrono::duration_cast<std::chrono::microseconds>(end - start).count());
 
     std::uint32_t candidate_count = 0;
     CheckCuda(cudaMemcpy(&candidate_count,
@@ -241,9 +272,9 @@ StepResult GpuExecutor::Execute() {
     std::uint64_t processed_keys = config_.keys_total;
     result.processed_keys = processed_keys;
     result.next_scalar = core::Incremented(batch_start_, processed_keys);
-    if (result.elapsed_ms > 0) {
-        result.keys_per_sec = static_cast<double>(result.processed_keys) * 1000.0 /
-                              static_cast<double>(result.elapsed_ms);
+    if (result.elapsed_us > 0) {
+        result.keys_per_sec = static_cast<double>(result.processed_keys) * 1'000'000.0 /
+                              static_cast<double>(result.elapsed_us);
     }
 
     return result;

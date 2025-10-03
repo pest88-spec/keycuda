@@ -17,8 +17,8 @@ struct BatchConfig {
     std::uint64_t keys_total{0};
 };
 
-constexpr std::uint64_t kMaxKeysPerBatch = 1ULL << 21;          // 2,097,152 keys
-constexpr std::uint64_t kMaxThreadsPerBatch = 1ULL << 17;        // 131,072 threads
+constexpr std::uint64_t kMaxKeysPerBatch = 1ULL << 28;          // 268,435,456 keys
+constexpr std::uint64_t kMaxThreadsPerBatch = 1ULL << 20;        // 1,048,576 threads
 constexpr std::size_t kMaxCandidateBuffer = 4096;                // bounded result slots
 
 class BatchPlanner {

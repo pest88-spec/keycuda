@@ -20,7 +20,7 @@ namespace puzzle71::gpu {
 struct StepResult {
     core::UInt256 next_scalar;
     std::uint64_t processed_keys{0};
-    std::uint64_t elapsed_ms{0};
+    std::uint64_t elapsed_us{0};
     std::vector<bitcrack_adapter::KeySearchResult> candidates;
     double keys_per_sec{0.0};
 };
@@ -29,7 +29,8 @@ class GpuExecutor {
 public:
     GpuExecutor(int device_id,
                 bool compressed,
-                const std::array<std::uint32_t, 5>& target_hash160);
+                const std::array<std::uint32_t, 5>& target_hash160,
+                bool verbose);
     ~GpuExecutor();
     GpuExecutor(const GpuExecutor&) = delete;
     GpuExecutor& operator=(const GpuExecutor&) = delete;
@@ -55,6 +56,7 @@ private:
     std::vector<puzzle71::gpu::DeviceCandidate> host_candidates_;
 
     CudaDeviceKeys device_keys_;
+    bool verbose_{false};
 
     void InitializeDeviceKeys(const std::vector<secp256k1::uint256>& scalars,
                               int points_per_thread,
