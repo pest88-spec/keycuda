@@ -12,6 +12,7 @@
 #include <iostream>
 #include <sstream>
 #include <stdexcept>
+#include <string>
 #include <vector>
 
 namespace puzzle71::gpu {
@@ -38,13 +39,46 @@ void FinalizePrivateKey(core::UInt256* out,
     *out = core::Incremented(start, offset);
 }
 
+bool IsOutOfMemoryError(const std::runtime_error& ex) {
+    const std::string message = ex.what();
+    return message.find("out of memory") != std::string::npos ||
+           message.find("memory allocation") != std::string::npos ||
+           message.find("cudaMalloc") != std::string::npos;
+}
+
+bool ReduceBatchForOom(gpu::BatchConfig& cfg) {
+    if (cfg.points_per_thread > 1) {
+        cfg.points_per_thread = std::max(1, cfg.points_per_thread / 2);
+        return true;
+    }
+
+    constexpr unsigned int kWarp = 32;
+    if (cfg.block.x > kWarp) {
+        unsigned int reduced = cfg.block.x / 2;
+        reduced = (reduced / kWarp) * kWarp;
+        if (reduced >= kWarp) {
+            cfg.block.x = reduced;
+            return true;
+        }
+    }
+
+    if (cfg.grid.x > 1) {
+        cfg.grid.x = std::max<unsigned int>(1u, cfg.grid.x / 2);
+        return true;
+    }
+
+    return false;
+}
+
 }  // namespace
 
 GpuExecutor::GpuExecutor(int device_id,
                          bool compressed,
                          const std::array<std::uint32_t, 5>& target_hash160,
                          bool verbose)
-    : device_id_(device_id), compressed_(compressed), verbose_(verbose) {
+    : device_id_(device_id), compressed_(compressed), props_{}, config_{}, batch_start_{},
+      host_scalars_{}, device_candidates_{}, device_candidate_count_{}, host_candidates_{},
+      device_keys_{}, verbose_(verbose) {
     if (verbose_) {
         std::cout << "[debug] GpuExecutor: Setting device " << device_id << std::endl;
     }
@@ -74,8 +108,29 @@ GpuExecutor::GpuExecutor(int device_id,
 }
 
 GpuExecutor::~GpuExecutor() {
-    cleanupChainBuf();
-    device_keys_.clearPublicKeys();
+    ForceCleanup();
+}
+
+void GpuExecutor::ForceCleanup() {
+    try {
+        cleanupChainBuf();
+        device_keys_.clearPublicKeys();
+        device_keys_.clearPrivateKeys();
+        device_candidates_.Release();
+        device_candidate_count_.Release();
+        host_candidates_.clear();
+        host_candidates_.shrink_to_fit();
+        host_scalars_.Clear();
+        cudaError_t status = cudaDeviceSynchronize();
+        if (verbose_ && status != cudaSuccess) {
+            std::cerr << "[warn] cudaDeviceSynchronize during cleanup: "
+                      << cudaGetErrorString(status) << std::endl;
+        }
+    } catch (const std::exception& ex) {
+        if (verbose_) {
+            std::cerr << "[warn] force cleanup failed: " << ex.what() << std::endl;
+        }
+    }
 }
 
 void GpuExecutor::InitializeDeviceKeys(const std::vector<secp256k1::uint256>& scalars,
@@ -169,23 +224,65 @@ void GpuExecutor::PrepareBatch(const BatchConfig& config,
                   << " start=" << start_scalar.ToHex() << std::endl;
     }
 
-    host_scalars_.Configure(config_.grid, config_.block, config_.points_per_thread);
-    DeviceBatch batch = host_scalars_.PrepareBatch(batch_start_, config_.keys_total);
+    constexpr std::size_t kMinFreeMemBytes = 2ULL * 1024 * 1024 * 1024;  // 2 GB safety margin
 
-    auto scalars = ToBitCrackScalars(batch.scalars);
+    while (true) {
+        size_t free_mem = 0;
+        size_t total_mem = 0;
+        if (cudaMemGetInfo(&free_mem, &total_mem) == cudaSuccess) {
+            if (verbose_) {
+                std::cout << "[debug] GPU memory: used="
+                          << (total_mem - free_mem) / (1024 * 1024)
+                          << "MB free=" << free_mem / (1024 * 1024) << "MB" << std::endl;
+            }
+            if (free_mem < kMinFreeMemBytes) {
+                if (ReduceBatchForOom(config_)) {
+                    ClampBatchConfig(config_, kMaxKeysPerBatch);
+                    if (verbose_) {
+                        std::cout << "[warn] Low GPU memory detected, reducing batch to grid="
+                                  << config_.grid.x << " block=" << config_.block.x
+                                  << " points/thread=" << config_.points_per_thread << std::endl;
+                    }
+                    continue;
+                }
+            }
+        }
 
-    std::uint64_t total_points = static_cast<std::uint64_t>(config_.grid.x) *
-                                 static_cast<std::uint64_t>(config_.block.x) *
-                                 static_cast<std::uint64_t>(config_.points_per_thread);
-    if (scalars.size() != total_points) {
-        std::ostringstream oss;
-        oss << "Scalar count mismatch: expected " << total_points
-            << " got " << scalars.size();
-        throw std::runtime_error(oss.str());
+        std::uint64_t threads = ComputeThreadCount(config_.grid, config_.block);
+        config_.keys_total = threads * static_cast<std::uint64_t>(config_.points_per_thread);
+
+        host_scalars_.Configure(config_.grid, config_.block, config_.points_per_thread);
+        DeviceBatch batch = host_scalars_.PrepareBatch(batch_start_, config_.keys_total);
+
+        auto scalars = ToBitCrackScalars(batch.scalars);
+
+        std::uint64_t total_points = static_cast<std::uint64_t>(config_.grid.x) *
+                                     static_cast<std::uint64_t>(config_.block.x) *
+                                     static_cast<std::uint64_t>(config_.points_per_thread);
+        if (scalars.size() != total_points) {
+            std::ostringstream oss;
+            oss << "Scalar count mismatch: expected " << total_points
+                << " got " << scalars.size();
+            throw std::runtime_error(oss.str());
+        }
+
+        try {
+            InitializeDeviceKeys(scalars, config_.points_per_thread, config_.grid, config_.block);
+            PrepareResultBuffers(batch.scalars.size());
+            break;
+        } catch (const std::runtime_error& ex) {
+            if (!IsOutOfMemoryError(ex) || !ReduceBatchForOom(config_)) {
+                throw;
+            }
+            if (verbose_) {
+                std::cout << "[warn] CUDA out of memory during init; reducing batch to grid=" << config_.grid.x
+                          << " block=" << config_.block.x
+                          << " points/thread=" << config_.points_per_thread << std::endl;
+            }
+            ClampBatchConfig(config_, kMaxKeysPerBatch);
+            continue;
+        }
     }
-
-    InitializeDeviceKeys(scalars, config_.points_per_thread, config_.grid, config_.block);
-    PrepareResultBuffers(batch.scalars.size());
 }
 
 StepResult GpuExecutor::Execute() {
@@ -276,6 +373,8 @@ StepResult GpuExecutor::Execute() {
         result.keys_per_sec = static_cast<double>(result.processed_keys) * 1'000'000.0 /
                               static_cast<double>(result.elapsed_us);
     }
+
+    ForceCleanup();
 
     return result;
 }

@@ -89,4 +89,13 @@ DeviceBatch DeviceBuffers::PrepareBatch(const core::UInt256& start, std::uint64_
     return batch;
 }
 
+void DeviceBuffers::Clear() {
+    host_scalars_.clear();
+    host_scalars_.shrink_to_fit();
+    grid_ = dim3(0, 0, 0);
+    block_ = dim3(0, 0, 0);
+    points_per_thread_ = 1;
+    slots_ = 0;
+}
+
 }  // namespace puzzle71::gpu

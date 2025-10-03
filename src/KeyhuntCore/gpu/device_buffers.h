@@ -26,6 +26,7 @@ public:
     void Configure(dim3 grid, dim3 block, int points_per_thread);
 
     DeviceBatch PrepareBatch(const core::UInt256& start, std::uint64_t batch_size);
+    void Clear();
 
 private:
     void Release();

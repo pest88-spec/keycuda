@@ -43,6 +43,7 @@ public:
     StepResult Execute();
 
 private:
+    void ForceCleanup();
     int device_id_{0};
     bool compressed_{true};
     cudaDeviceProp props_{};
