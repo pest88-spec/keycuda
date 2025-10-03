@@ -58,6 +58,8 @@ private:
 
     CudaDeviceKeys device_keys_;
     bool verbose_{false};
+    BatchConfig last_config_{};
+    bool gpu_initialized_{false};
 
     void InitializeDeviceKeys(const std::vector<secp256k1::uint256>& scalars,
                               int points_per_thread,

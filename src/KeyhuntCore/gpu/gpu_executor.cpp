@@ -111,6 +111,7 @@ GpuExecutor::~GpuExecutor() {
     SmartCleanup();
     device_keys_.clearPrivateKeys();
     cleanupChainBuf();
+    gpu_initialized_ = false;
 }
 
 void GpuExecutor::SmartCleanup() {
@@ -138,8 +139,6 @@ void GpuExecutor::InitializeDeviceKeys(const std::vector<secp256k1::uint256>& sc
     CheckCuda(cudaSetDevice(device_id_), "cudaSetDevice");
     CheckCuda(cudaSetDeviceFlags(cudaDeviceScheduleBlockingSync), "cudaSetDeviceFlags");
     CheckCuda(cudaDeviceSetCacheConfig(cudaFuncCachePreferL1), "cudaDeviceSetCacheConfig");
-
-    cleanupChainBuf();
 
     CheckCuda(device_keys_.init(static_cast<int>(grid.x),
                                 static_cast<int>(block.x),
@@ -222,6 +221,11 @@ void GpuExecutor::PrepareBatch(const BatchConfig& config,
                   << " start=" << start_scalar.ToHex() << std::endl;
     }
 
+    bool config_changed = !gpu_initialized_ ||
+                          config_.grid.x != last_config_.grid.x ||
+                          config_.block.x != last_config_.block.x ||
+                          config_.points_per_thread != last_config_.points_per_thread;
+
     while (true) {
         size_t free_mem = 0;
         size_t total_mem = 0;
@@ -241,6 +245,7 @@ void GpuExecutor::PrepareBatch(const BatchConfig& config,
                                   << config_.grid.x << " block=" << config_.block.x
                                   << " points/thread=" << config_.points_per_thread << std::endl;
                     }
+                    config_changed = true;
                     continue;
                 }
             }
@@ -264,13 +269,43 @@ void GpuExecutor::PrepareBatch(const BatchConfig& config,
             throw std::runtime_error(oss.str());
         }
 
-        cleanupChainBuf();
-        device_keys_.clearPublicKeys();
-        device_keys_.clearPrivateKeys();
-
-        try {
+        auto initialize_with_current_config = [&]() {
             InitializeDeviceKeys(scalars, config_.points_per_thread, config_.grid, config_.block);
             PrepareResultBuffers(batch.scalars.size());
+            last_config_ = config_;
+            gpu_initialized_ = true;
+        };
+
+        auto refresh_existing_config = [&]() -> bool {
+            CheckCuda(cudaSetDevice(device_id_), "cudaSetDevice");
+            auto status = device_keys_.updatePrivateKeys(scalars);
+            if (status != cudaSuccess) {
+                if (verbose_) {
+                    std::cerr << "[warn] updatePrivateKeys failed (" << cudaGetErrorString(status)
+                              << "), falling back to reinitialization" << std::endl;
+                }
+                return false;
+            }
+            for (int i = 1; i <= 256; ++i) {
+                CheckCuda(device_keys_.doStep(), "device_keys_.doStep");
+            }
+            PrepareResultBuffers(batch.scalars.size());
+            last_config_ = config_;
+            return true;
+        };
+
+        try {
+            if (config_changed) {
+                cleanupChainBuf();
+                device_keys_.clearPublicKeys();
+                device_keys_.clearPrivateKeys();
+                initialize_with_current_config();
+            } else {
+                if (!refresh_existing_config()) {
+                    config_changed = true;
+                    initialize_with_current_config();
+                }
+            }
             break;
         } catch (const std::runtime_error& ex) {
             if (!IsOutOfMemoryError(ex) || !ReduceBatchForOom(config_)) {
@@ -282,6 +317,7 @@ void GpuExecutor::PrepareBatch(const BatchConfig& config,
                           << " points/thread=" << config_.points_per_thread << std::endl;
             }
             ClampBatchConfig(config_, kMaxKeysPerBatch);
+            config_changed = true;
             continue;
         }
     }
