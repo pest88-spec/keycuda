@@ -301,10 +301,13 @@ void GpuExecutor::PrepareBatch(const BatchConfig& config,
                 device_keys_.clearPrivateKeys();
                 initialize_with_current_config();
             } else {
-                if (!refresh_existing_config()) {
-                    config_changed = true;
-                    initialize_with_current_config();
-                }
+            if (!refresh_existing_config()) {
+                cleanupChainBuf();
+                device_keys_.clearPublicKeys();
+                device_keys_.clearPrivateKeys();
+                config_changed = true;
+                initialize_with_current_config();
+            }
             }
             break;
         } catch (const std::runtime_error& ex) {
