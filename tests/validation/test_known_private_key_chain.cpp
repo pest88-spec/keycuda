@@ -1,6 +1,7 @@
 #include <gtest/gtest.h>
 
 #include <openssl/evp.h>
+#include <openssl/provider.h>
 
 #include <algorithm>
 #include <array>
@@ -16,6 +17,34 @@ extern "C" {
 }
 
 namespace {
+
+// OpenSSL 3.0+ requires explicit loading of legacy provider for RIPEMD160
+struct OpenSSLProviderLoader {
+    OSSL_PROVIDER* legacy{nullptr};
+    OSSL_PROVIDER* default_provider{nullptr};
+
+    OpenSSLProviderLoader() {
+        legacy = OSSL_PROVIDER_load(nullptr, "legacy");
+        default_provider = OSSL_PROVIDER_load(nullptr, "default");
+        if (!legacy || !default_provider) {
+            throw std::runtime_error("Failed to load OpenSSL providers (legacy/default)");
+        }
+    }
+
+    ~OpenSSLProviderLoader() {
+        if (legacy) OSSL_PROVIDER_unload(legacy);
+        if (default_provider) OSSL_PROVIDER_unload(default_provider);
+    }
+
+    // Singleton instance
+    static OpenSSLProviderLoader& instance() {
+        static OpenSSLProviderLoader loader;
+        return loader;
+    }
+};
+
+// Initialize providers at program start
+static auto& g_openssl_providers = OpenSSLProviderLoader::instance();
 
 std::array<std::uint8_t, 32> ParseHexScalar(const std::string& hex_string) {
     auto trim_whitespace = [](char c) {
