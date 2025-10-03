@@ -51,7 +51,7 @@
 | 库 | 用途 | 仓库 |
 |-----|------|------|
 | **bitcoin-core/secp256k1** | ECC运算和CPU验证 | https://github.com/bitcoin-core/secp256k1 |
-| **BitCrack** | GPU kernel和地址工具 | https://github.com/brichard19/BitCrack |
+| **BitCrack** | GPU kernel和地址工具 | https://github.com/pest88-spec/BitCrack |
 | **GoogleTest** | 单元测试框架 | CMake FetchContent自动获取 |
 | **nlohmann/json** | JSON处理 | CMake FetchContent自动获取 |
 
@@ -146,7 +146,7 @@ ls -la third_party/BitCrack/
   git clone https://github.com/bitcoin-core/secp256k1.git third_party/bitcoin-core-secp256k1
 
   # BitCrack (使用fork版本)
-  git clone https://github.com/brichard19/BitCrack.git third_party/BitCrack
+  git clone https://github.com/pest88-spec/BitCrack.git third_party/BitCrack
   ```
 
 ### 3. 编译构建
