@@ -108,19 +108,17 @@ GpuExecutor::GpuExecutor(int device_id,
 }
 
 GpuExecutor::~GpuExecutor() {
-    ForceCleanup();
+    SmartCleanup();
+    device_keys_.clearPrivateKeys();
+    cleanupChainBuf();
 }
 
-void GpuExecutor::ForceCleanup() {
+void GpuExecutor::SmartCleanup() {
     try {
-        cleanupChainBuf();
-        device_keys_.clearPublicKeys();
-        device_keys_.clearPrivateKeys();
         device_candidates_.Release();
         device_candidate_count_.Release();
         host_candidates_.clear();
         host_candidates_.shrink_to_fit();
-        host_scalars_.Clear();
         cudaError_t status = cudaDeviceSynchronize();
         if (verbose_ && status != cudaSuccess) {
             std::cerr << "[warn] cudaDeviceSynchronize during cleanup: "
@@ -128,7 +126,7 @@ void GpuExecutor::ForceCleanup() {
         }
     } catch (const std::exception& ex) {
         if (verbose_) {
-            std::cerr << "[warn] force cleanup failed: " << ex.what() << std::endl;
+            std::cerr << "[warn] smart cleanup failed: " << ex.what() << std::endl;
         }
     }
 }
@@ -224,18 +222,18 @@ void GpuExecutor::PrepareBatch(const BatchConfig& config,
                   << " start=" << start_scalar.ToHex() << std::endl;
     }
 
-    constexpr std::size_t kMinFreeMemBytes = 2ULL * 1024 * 1024 * 1024;  // 2 GB safety margin
-
     while (true) {
         size_t free_mem = 0;
         size_t total_mem = 0;
         if (cudaMemGetInfo(&free_mem, &total_mem) == cudaSuccess) {
+            std::size_t min_free = static_cast<std::size_t>(total_mem / 10);  // keep 10% free
             if (verbose_) {
                 std::cout << "[debug] GPU memory: used="
                           << (total_mem - free_mem) / (1024 * 1024)
-                          << "MB free=" << free_mem / (1024 * 1024) << "MB" << std::endl;
+                          << "MB free=" << free_mem / (1024 * 1024) << "MB"
+                          << " threshold=" << min_free / (1024 * 1024) << "MB" << std::endl;
             }
-            if (free_mem < kMinFreeMemBytes) {
+            if (free_mem < min_free) {
                 if (ReduceBatchForOom(config_)) {
                     ClampBatchConfig(config_, kMaxKeysPerBatch);
                     if (verbose_) {
@@ -265,6 +263,10 @@ void GpuExecutor::PrepareBatch(const BatchConfig& config,
                 << " got " << scalars.size();
             throw std::runtime_error(oss.str());
         }
+
+        cleanupChainBuf();
+        device_keys_.clearPublicKeys();
+        device_keys_.clearPrivateKeys();
 
         try {
             InitializeDeviceKeys(scalars, config_.points_per_thread, config_.grid, config_.block);
@@ -324,6 +326,10 @@ StepResult GpuExecutor::Execute() {
     result.elapsed_us = static_cast<std::uint64_t>(
         std::chrono::duration_cast<std::chrono::microseconds>(end - start).count());
 
+    if (verbose_) {
+        std::cout << "[debug] Kernel completed elapsed_us=" << result.elapsed_us << std::endl;
+    }
+
     std::uint32_t candidate_count = 0;
     CheckCuda(cudaMemcpy(&candidate_count,
                          device_candidate_count_.data(),
@@ -374,7 +380,7 @@ StepResult GpuExecutor::Execute() {
                               static_cast<double>(result.elapsed_us);
     }
 
-    ForceCleanup();
+    SmartCleanup();
 
     return result;
 }
