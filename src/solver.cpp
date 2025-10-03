@@ -53,6 +53,70 @@ namespace {
 
 constexpr std::size_t kDigestWordCount = 5;
 
+std::string FormatKeyCount(std::uint64_t keys) {
+    static const char* kUnits[] = {"", "K", "M", "G", "T", "P"};
+    double value = static_cast<double>(keys);
+    std::size_t unit_index = 0;
+    constexpr std::size_t unit_count = sizeof(kUnits) / sizeof(kUnits[0]);
+    while (value >= 1000.0 && unit_index + 1 < unit_count) {
+        value /= 1000.0;
+        ++unit_index;
+    }
+    std::ostringstream oss;
+    oss << std::fixed << std::setprecision(value >= 100.0 ? 0 : value >= 10.0 ? 1 : 2)
+        << value << ' ' << kUnits[unit_index] << "keys";
+    return oss.str();
+}
+
+std::string FormatKeyRate(double keys_per_sec) {
+    if (keys_per_sec <= 0.0) {
+        return "0 keys/s";
+    }
+    static const char* kUnits[] = {"keys/s", "Kkeys/s", "Mkeys/s", "Gkeys/s", "Tkeys/s"};
+    double value = keys_per_sec;
+    std::size_t unit_index = 0;
+    constexpr std::size_t unit_count = sizeof(kUnits) / sizeof(kUnits[0]);
+    while (value >= 1000.0 && unit_index + 1 < unit_count) {
+        value /= 1000.0;
+        ++unit_index;
+    }
+    std::ostringstream oss;
+    oss << std::fixed << std::setprecision(value >= 100.0 ? 0 : value >= 10.0 ? 1 : 2)
+        << value << ' ' << kUnits[unit_index];
+    return oss.str();
+}
+
+std::string FormatDurationMs(std::uint64_t ms) {
+    if (ms == 0) {
+        return "0.00s";
+    }
+    std::uint64_t hours = ms / 3'600'000;
+    std::uint64_t minutes = (ms % 3'600'000) / 60'000;
+    double seconds = (ms % 60'000) / 1000.0;
+    std::ostringstream oss;
+    bool printed = false;
+    if (hours > 0) {
+        oss << hours << 'h';
+        printed = true;
+    }
+    if (minutes > 0) {
+        if (printed) oss << ' ';
+        oss << minutes << 'm';
+        printed = true;
+    }
+    if (!printed || seconds > 0.0) {
+        if (printed) oss << ' ';
+        oss << std::fixed << std::setprecision(seconds >= 10.0 ? 1 : 2) << seconds << 's';
+    }
+    return oss.str();
+}
+
+void DebugLog(const SolverOptions& options, const std::string& message) {
+    if (options.verbose) {
+        std::cout << message << std::endl;
+    }
+}
+
 std::string IsoTimestamp() {
     auto now = std::chrono::system_clock::now();
     std::time_t t = std::chrono::system_clock::to_time_t(now);
@@ -436,10 +500,14 @@ void Puzzle71Solver::Run() {
         std::cout << "[WARNING] Super mode enabled - security restrictions bypassed for testing" << std::endl;
     }
 
-    std::cout << "[debug] Detecting CUDA devices..." << std::endl;
+    DebugLog(options_, "[debug] Detecting CUDA devices...");
     auto device_ids = options_.device_ids;
     const std::uint32_t available_devices = DetectCudaDeviceCount();
-    std::cout << "[debug] Found " << available_devices << " CUDA device(s)" << std::endl;
+    if (options_.verbose) {
+        DebugLog(options_, "[debug] Found " + std::to_string(available_devices) + " CUDA device(s)");
+    } else {
+        std::cout << "[info] CUDA devices available: " << available_devices << std::endl;
+    }
     if (device_ids.empty()) {
         device_ids.resize(available_devices);
         std::iota(device_ids.begin(), device_ids.end(), 0);
@@ -473,11 +541,13 @@ void Puzzle71Solver::Run() {
         deterministic_rng_ptr = &deterministic_rng;
     }
 
-    std::cout << "[debug] Building schedule for " << device_ids.size() << " device(s)..." << std::endl;
+    DebugLog(options_, "[debug] Building schedule for " + std::to_string(device_ids.size()) + " device(s)...");
     auto schedule = scheduler::BuildDeterministicSchedule(keyspace_start,
                                                           keyspace_end,
                                                           static_cast<std::uint32_t>(device_ids.size()));
-    std::cout << "[debug] Schedule created with " << schedule.size() << " shard(s)" << std::endl;
+    if (options_.verbose) {
+        DebugLog(options_, "[debug] Schedule created with " + std::to_string(schedule.size()) + " shard(s)");
+    }
 
     for (std::size_t i = 0; i < schedule.size() && i < device_ids.size(); ++i) {
         schedule[i].device_id = static_cast<std::uint32_t>(device_ids[i]);
@@ -491,11 +561,20 @@ void Puzzle71Solver::Run() {
         return;
     }
 
-    std::cout << "[debug] Starting GPU scan..." << std::endl;
+    struct RunMetrics {
+        std::uint64_t total_keys{0};
+        std::uint64_t total_elapsed_ms{0};
+        std::uint64_t batches{0};
+        double peak_keys_per_sec{0.0};
+    } metrics;
+
+    auto wall_start = std::chrono::steady_clock::now();
+
+    std::cout << "[info] Starting GPU scan" << std::endl;
     for (const auto& shard : schedule) {
-        std::cout << "[debug] Processing shard [" << shard.start.ToHex() << " : " << shard.end.ToHex() << "]" << std::endl;
+        DebugLog(options_, "[debug] Processing shard [" + shard.start.ToHex() + " : " + shard.end.ToHex() + "]");
         auto partitions = scan::PartitionKeyspace(shard, /*slices=*/1);
-        std::cout << "[debug] Created " << partitions.size() << " partition(s)" << std::endl;
+        DebugLog(options_, "[debug] Created " + std::to_string(partitions.size()) + " partition(s)");
         for (const auto& partition : partitions) {
             auto context = puzzle71::bitcrack_adapter::BuildGpuContext(partition,
                                                                        target_hash,
@@ -562,6 +641,34 @@ void Puzzle71Solver::Run() {
                         processed = remaining;
                     }
                 }
+
+                double batch_rate = step.keys_per_sec;
+                if (batch_rate <= 0.0 && step.elapsed_ms > 0) {
+                    batch_rate = static_cast<double>(processed) * 1000.0 /
+                                  static_cast<double>(step.elapsed_ms);
+                }
+                metrics.total_keys += processed;
+                if (step.elapsed_ms > 0) {
+                    metrics.total_elapsed_ms += step.elapsed_ms;
+                }
+                ++metrics.batches;
+                if (batch_rate > metrics.peak_keys_per_sec) {
+                    metrics.peak_keys_per_sec = batch_rate;
+                }
+
+                double avg_rate = (metrics.total_elapsed_ms > 0)
+                                       ? static_cast<double>(metrics.total_keys) * 1000.0 /
+                                             static_cast<double>(metrics.total_elapsed_ms)
+                                       : 0.0;
+
+                std::cout << "[status] batch " << metrics.batches
+                          << " | chunk=" << chunk_start.ToHex()
+                          << " | size=" << FormatKeyCount(processed)
+                          << " | elapsed=" << FormatDurationMs(step.elapsed_ms)
+                          << " | rate=" << FormatKeyRate(batch_rate)
+                          << " | total=" << FormatKeyCount(metrics.total_keys)
+                          << " | avg=" << FormatKeyRate(avg_rate)
+                          << std::endl;
 
                 for (const auto& candidate : gpu_results) {
                     auto secp_point_x = ::bitcrack_adapter::ToBitCrack(candidate.x);
@@ -720,6 +827,20 @@ void Puzzle71Solver::Run() {
             }
         }
     }
+
+    auto wall_end = std::chrono::steady_clock::now();
+    auto wall_ms = static_cast<std::uint64_t>(
+        std::chrono::duration_cast<std::chrono::milliseconds>(wall_end - wall_start).count());
+    double avg_rate_wall = wall_ms > 0
+                               ? static_cast<double>(metrics.total_keys) * 1000.0 / static_cast<double>(wall_ms)
+                               : 0.0;
+
+    std::cout << "[summary] total=" << FormatKeyCount(metrics.total_keys)
+              << " | batches=" << metrics.batches
+              << " | wall=" << FormatDurationMs(wall_ms)
+              << " | avg=" << FormatKeyRate(avg_rate_wall)
+              << " | peak=" << FormatKeyRate(metrics.peak_keys_per_sec)
+              << std::endl;
 
     if (options_.prometheus_dir) {
         puzzle71::telemetry::PrometheusOptions prom_opts{*options_.prometheus_dir};

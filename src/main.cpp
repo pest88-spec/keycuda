@@ -25,6 +25,7 @@ struct ParsedArgs {
     bool dry_run{false};
     bool enable_checkpoint{false};
     bool super_mode{false};
+    bool verbose{false};
     std::optional<std::string> prometheus_dir;
     std::optional<std::string> telemetry_dir;
     std::optional<std::string> replay_manifest;
@@ -58,9 +59,10 @@ std::vector<int> ParseDeviceList(const std::optional<std::string>& list) {
 void PrintUsage() {
     std::cerr << "Usage: Puzzle71Solver --keyspace <start:end> --target-address <addr> --operator-id <id> "
                  "--operator-purpose <purpose> [--device <ids>] [--dry-run] [--enable-checkpoint] "
-                 "[--super] [--prometheus-export <dir>] [--telemetry-jsonl <dir>] [--replay-manifest <path>] "
+                 "[--super] [--verbose] [--prometheus-export <dir>] [--telemetry-jsonl <dir>] [--replay-manifest <path>] "
                  "[--resume-manifest <path>] [--luck-file <path>]" << std::endl;
     std::cerr << "\n  --super: Skip Puzzle #71 security restrictions (for testing/benchmarking)" << std::endl;
+    std::cerr << "  --verbose: Emit detailed debug diagnostics" << std::endl;
 }
 
 ParsedArgs ParseArguments(int argc, char* argv[]) {
@@ -95,6 +97,10 @@ ParsedArgs ParseArguments(int argc, char* argv[]) {
         }
         if (arg == "--super") {
             parsed.super_mode = true;
+            continue;
+        }
+        if (arg == "--verbose") {
+            parsed.verbose = true;
             continue;
         }
         if (arg == "--prometheus-export") {
@@ -192,6 +198,7 @@ int main(int argc, char* argv[]) {
         options.enable_checkpoint = parsed.enable_checkpoint;
         options.dry_run = parsed.dry_run;
         options.super_mode = parsed.super_mode;
+        options.verbose = parsed.verbose;
         options.telemetry_jsonl_dir = parsed.telemetry_dir;
         options.prometheus_dir = parsed.prometheus_dir;
         options.replay_manifest_path = parsed.replay_manifest;

@@ -20,6 +20,7 @@ struct SolverOptions {
     bool enable_checkpoint{false};
     bool dry_run{false};
     bool super_mode{false};  // Skip Puzzle #71 security restrictions
+    bool verbose{false};
     std::optional<std::string> replay_manifest_path;
     std::optional<std::string> resume_manifest_path;
     std::optional<std::string> telemetry_jsonl_dir;

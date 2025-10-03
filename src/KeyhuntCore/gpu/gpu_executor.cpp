@@ -167,10 +167,6 @@ void GpuExecutor::PrepareBatch(const BatchConfig& config,
         throw std::runtime_error(oss.str());
     }
 
-    std::cout << "[debug] GpuExecutor: init blocks=" << config_.grid.x
-              << " threads=" << config_.block.x
-              << " points/thread=" << config_.points_per_thread
-              << " total_points=" << total_points << std::endl;
     InitializeDeviceKeys(scalars, config_.points_per_thread, config_.grid, config_.block);
     PrepareResultBuffers(batch.scalars.size());
 }
