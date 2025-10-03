@@ -56,22 +56,12 @@ std::optional<UInt256> UInt256::FromHex(std::string_view hex) {
 }
 
 std::string UInt256::ToHex() const {
+    // Fixed-width output: always 64 hex digits (256 bits / 4 bits per digit)
+    // This prevents loss of leading zeros which caused private key corruption
     std::ostringstream oss;
-    oss << std::hex << std::setfill('0');
-    bool started = false;
+    oss << "0x" << std::hex << std::setfill('0');
     for (std::size_t i = limbs.size(); i-- > 0;) {
-        if (!started) {
-            if (limbs[i] == 0) {
-                continue;
-            }
-            oss << "0x" << limbs[i];
-            started = true;
-        } else {
-            oss << std::setw(16) << limbs[i];
-        }
-    }
-    if (!started) {
-        oss << "0x0";
+        oss << std::setw(16) << limbs[i];
     }
     return oss.str();
 }

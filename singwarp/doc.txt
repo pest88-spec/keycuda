@@ -1,0 +1,257 @@
+
+
+不是“注册正式账号”，而是“自动获取匿名令牌（匿名账号）”。流程分为三跳：创建匿名用户 → 用 idToken 换 refresh_token → 用
+   refresh_token 换 access_token（WARP_JWT）。代码实现位于 warp2protobuf/core/auth.py 的
+   acquire_anonymous_access_token 及其子函数。
+
+   完整流程与步骤
+
+     * 前置约定
+       * 主要环境变量和常量：
+         
+       * REFRESH_URL：Warp 的代理令牌端点（形如 https://app.warp.dev/proxy/token?key=...） (https://app.warp.dev/proxy/token?key=...）)
+           
+         
+       * CLIENT_VERSION、OS_CATEGORY、OS_NAME、OS_VERSION：作为请求头随请求发送（见 warp2protobuf/config/settings.py）
+       
+       * .env 持久化位置：
+         
+       * 如果 /tmp/.env 存在则写入 /tmp/.env（HF Spaces/Docker 场景），否则写入项目根目录 .env。
+           
+         
+       * set_key 会更新/写入 WARP_REFRESH_TOKEN 和 WARP_JWT。
+     * 第一步：创建匿名用户（GraphQL）
+       * 目标：拿到 idToken（Firebase 自定义 token）
+       
+       * 接口：
+         
+       * URL: https://app.warp.dev/graphql/v2?op=CreateAnonymousUser (https://app.warp.dev/graphql/v2?op=CreateAnonymousUser)
+           
+         
+       * 方法: POST
+           
+         
+       * Headers:
+   
+         
+       * content-type: application/json
+   
+   
+         
+       * accept-encoding: gzip, br
+   
+   
+         
+       * x-warp-client-version: {CLIENT_VERSION}
+   
+   
+         
+       * x-warp-os-category: {OS_CATEGORY}
+   
+   
+         
+       * x-warp-os-name: {OS_NAME}
+   
+   
+         
+       * x-warp-os-version: {OS_VERSION}
+           
+         
+       * Body（片段，代码中已写死 mutation 与 variables）：
+   
+         
+       * mutation: CreateAnonymousUser
+   
+   
+         
+       * variables.input.anonymousUserType: NATIVE_CLIENT_ANONYMOUS_USER_FEATURE_GATED
+   
+   
+         
+       * variables.input.expirationType: NO_EXPIRATION
+           
+         
+       * 预期返回：data.createAnonymousUser.idToken
+       
+       * 异常：HTTP 非 200 或 body 无 idToken 则报错
+     * 第二步：用 idToken 换 refresh_token（Google Identity Toolkit）
+       * 目标：获得 refresh_token（后续可长期刷新 JWT）
+       
+       * 接口：
+         
+       * URL: https://identitytoolkit.googleapis.com/v1/accounts:signInWithCustomToken?key={API_KEY} 
+   (https://identitytoolkit.googleapis.com/v1/accounts:signInWithCustomToken?key={API_KEY})
+   
+         
+       * API_KEY 来自 REFRESH_URL 的 key 查询参数（_extract_google_api_key_from_refresh_url），若取不到，代码有一个默认 key 后备
+           
+         
+       * 方法: POST
+           
+         
+       * Headers:
+   
+         
+       * content-type: application/x-www-form-urlencoded
+   
+   
+         
+       * accept-encoding: gzip, br
+   
+   
+         
+       * x-warp-client-version / x-warp-os-* 同上
+           
+         
+       * Form：
+   
+         
+       * returnSecureToken=true
+   
+   
+         
+       * token={上一步的 idToken}
+           
+         
+       * 预期返回：JSON 中包含 refreshToken
+       
+       * 持久化：
+         
+       * update_env_refresh_token(refresh_token) → 写入 .env 的 WARP_REFRESH_TOKEN
+       
+       * 异常：HTTP 非 200 或无 refreshToken 则报错
+     * 第三步：用 refresh_token 换 access_token（Warp 代理端点）
+       * 目标：拿到最终访问 Warp API 用的 access_token（WARP_JWT）
+       
+       * 接口：
+         
+       * URL：REFRESH_URL（示例形如 https://app.warp.dev/proxy/token?key=...） (https://app.warp.dev/proxy/token?key=...）)
+           
+         
+       * 方法：POST
+           
+         
+       * Headers：
+   
+         
+       * content-type: application/x-www-form-urlencoded
+   
+   
+         
+       * accept: /
+   
+   
+         
+       * accept-encoding: gzip, br
+   
+   
+         
+       * x-warp-client-version / x-warp-os-* 同上
+   
+   
+         
+       * content-length: 根据 payload 计算
+           
+         
+       * Body（x-www-form-urlencoded）：
+   
+         
+       * grant_type=refresh_token&refresh_token={上一步的 refresh_token}
+           
+         
+       * 预期返回：JSON 中包含 access_token
+       
+       * 持久化：
+         
+       * update_env_file(access_token) → 写入 .env 的 WARP_JWT
+       
+       * 异常：HTTP 非 200 或无 access_token 则报错
+     * 校验与后续使用
+       * is_token_expired(token, buffer_minutes)：根据 JWT payload.exp 判断是否即将过期
+       
+       * get_valid_jwt():
+         
+       * 加载 .env（load_dotenv）
+           
+         
+       * 若无 WARP_JWT：调用 check_and_refresh_token()（内部会走 refresh_jwt_token → 使用 WARP_REFRESH_TOKEN 刷新；若也没有则会走匿名流程）
+           
+         
+       * 若将过期：尝试刷新
+           
+         
+       * 返回可用的 JWT
+       
+       * refresh_jwt_token():
+         
+       * 优先用环境变量 WARP_REFRESH_TOKEN 刷新
+           
+         
+       * 若没有，则回退使用 REFRESH_TOKEN_B64（代码内置 base64 编码的 form payload）请求 REFRESH_URL
+           
+         
+       * 成功则 update_env_file(access_token)
+     * 自动触发时机（无需手工调用）
+       * 服务启动（server.startup_tasks）：如没有 JWT，会尝试 acquire_anonymous_access_token()
+       
+       * 调用 Warp API 遇到 429（配额耗尽）：
+         
+       * warp2protobuf/warp/api_client.py 和 /api/warp/send_stream_sse 里都带了逻辑：匹配到 “No remaining quota / No AI requests remaining” 后，会调用 
+   acquire_anonymous_access_token() 获取新的 JWT 并重试一次
+     * 代码直接调用方式（手动）
+       * Python 协程：
+         
+       * from warp2protobuf.core.auth import acquire_anonymous_access_token
+           
+         
+       * token = await acquire_anonymous_access_token()
+           
+         
+       * 该函数内部会：
+   
+         
+       * GraphQL 取 idToken → 换 refresh_token（写 .env）→ 调 Warp 代理换 access_token（写 .env）→ 返回 access_token
+       
+       * 刷新现有 JWT：
+         
+       * from warp2protobuf.core.auth import refresh_jwt_if_needed
+           
+         
+       * await refresh_jwt_if_needed()
+     * 请求示例（以 curl 表示，值请替换为你的环境）
+       * 1. CreateAnonymousUser（拿 idToken）
+           
+           
+         
+-H 'content-type: application/json'pp.warp.dev/graphql/v2?op=CreateAnonymousUser (https://app.warp.dev/graphql/v2?op=CreateAnonymousUser)' 
+-d 'x-warp-os-version: {OS_VERSION}' ' ION}' 
+   '{"query":"mutation CreateAnonymousUser...","variables":{...},"operationName":"CreateAnonymousUser"}'
+       
+       * 1. Google signInWithCustomToken（换 refresh_token）
+           
+           
+         
+       * curl -s -X POST 'https://identitytoolkit.googleapis.com/v1/accounts:signInWithCustomToken?key={API_KEY} 
+--data-urlencode  application/x-www-form-urlencoded' s:signInWithCustomToken?key={API_KEY})' 
+--data-urlencode 'token={ID_TOKEN_FROM_STEP1}'
+       
+       * 1. Warp /proxy/token（换 access_token）
+           
+           
+         
+-H 'content-type: X POST 'https://app.warp.dev/proxy/token?key={API_KEY} (https://app.warp.dev/proxy/token?key={API_KEY})' 
+--data-urlencode 'refresh_token={REFRESH_TOKEN_FROM_STEP2}'
+
+   注意与建议
+
+     * 该流程不会创建“实名/正式账号”，只是获取匿名访问令牌，方便在无 JWT 或配额耗尽时继续使用。
+     * 生产环境建议：
+       * 使用自己的 WARP_REFRESH_TOKEN 与 WARP_JWT，禁用/避免匿名获取逻辑（确保总有有效 JWT）。
+       
+       * 不要把固定的后备凭据（如 REFRESH_TOKEN_B64）暴露到公开环境；更推荐通过安全的配置注入。
+       
+       * 日志可能包含事件摘要与部分响应文本，注意敏感信息脱敏。
+     * TLS 验证：
+       * 正常保持启用。
+       
+       * 客户端/代理端在开发环境可以通过环境变量 WARP_INSECURE_TLS=true 临时关闭校验（仅调试用）。
