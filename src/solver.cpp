@@ -399,6 +399,23 @@ std::array<std::uint32_t, 5> DigestArray(const unsigned int digest[5]) {
     return out;
 }
 
+std::string FormatPrivateKeyHex(const core::UInt256& scalar) {
+    std::string hex = scalar.ToHex();
+    std::string prefix = "";
+    std::string body = hex;
+    if (hex.size() >= 2 && (hex.rfind("0x", 0) == 0 || hex.rfind("0X", 0) == 0)) {
+        prefix = "0x";
+        body = hex.substr(2);
+    }
+    if (body.size() < 64) {
+        body = std::string(64 - body.size(), '0') + body;
+    }
+    if (!prefix.empty()) {
+        return prefix + body;
+    }
+    return body;
+}
+
 }  // namespace
 
 Puzzle71Solver::Puzzle71Solver(SolverOptions options) : options_(std::move(options)) {}
@@ -573,6 +590,8 @@ void Puzzle71Solver::Run() {
     auto wall_start = std::chrono::steady_clock::now();
 
     std::cout << "[info] Starting GPU scan" << std::endl;
+    bool target_found = false;
+
     for (const auto& shard : schedule) {
         DebugLog(options_, "[debug] Processing shard [" + shard.start.ToHex() + " : " + shard.end.ToHex() + "]");
         auto partitions = scan::PartitionKeyspace(shard, /*slices=*/1);
@@ -730,7 +749,7 @@ void Puzzle71Solver::Run() {
                     }
 
                     // CRITICAL: Save private key immediately
-                    std::string private_key_hex = candidate.private_key.ToHex();
+                    std::string private_key_hex = FormatPrivateKeyHex(candidate.private_key);
                     std::cout << "Found match: private_key=" << private_key_hex << std::endl;
 
                     // Record address directly from target parameter (digest already verified)
@@ -739,10 +758,8 @@ void Puzzle71Solver::Run() {
 
                     AppendLuckEntry(private_key_hex, address);
 
-                    // Skip parity_records_ to avoid H20 memory corruption during cleanup
-                    // The critical data (private key + address) is already saved to disk
-// Skip parity_records_ to avoid H20 memory corruption during cleanup
-                    // The critical data (private key + address) is already saved to disk
+                    target_found = true;
+                    goto finalize_scan;
                 }
 
                 puzzle71::telemetry::TelemetryOptions telemetry_opts{};
@@ -764,7 +781,7 @@ void Puzzle71Solver::Run() {
                                                                processed,
                                                                next_scalar,
                                                                static_cast<std::uint64_t>(std::round(batch_ms)),
-                                                               gpu_results.size());
+                        gpu_results.size());
                 puzzle71::telemetry::LogTelemetryLine(telemetry_opts, telemetry_payload);
 
                 if (options_.enable_checkpoint) {
@@ -840,6 +857,12 @@ void Puzzle71Solver::Run() {
         }
     }
 
+finalize_scan:
+    if (target_found) {
+        std::cout << "[success] Target found! Stopping scan." << std::endl;
+        return;
+    }
+
     auto wall_end = std::chrono::steady_clock::now();
     double wall_ms = static_cast<double>(
         std::chrono::duration_cast<std::chrono::microseconds>(wall_end - wall_start).count()) /
@@ -887,6 +910,7 @@ void Puzzle71Solver::AppendLuckEntry(const std::string& scalar_hex, const std::s
         throw std::runtime_error("Unable to open luck.txt for append");
     }
     ofs << scalar_hex << ' ' << address << '\n';
+    ofs.flush();
 }
 
 }  // namespace puzzle71

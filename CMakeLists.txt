@@ -150,10 +150,20 @@ file(GLOB_RECURSE PUZZLE71_TEST_SOURCES CONFIGURE_DEPENDS tests/*.cpp tests/*.cu
 if(PUZZLE71_TEST_SOURCES)
   add_executable(puzzle71_tests ${PUZZLE71_TEST_SOURCES})
   target_link_libraries(puzzle71_tests PRIVATE GTest::gtest_main GTest::gmock_main Puzzle71Solver)
+  target_link_libraries(puzzle71_tests PRIVATE
+    OpenSSL::SSL
+    OpenSSL::Crypto
+    nlohmann_json::nlohmann_json
+    CUDA::cudart
+  )
+  if(TARGET secp256k1)
+    target_link_libraries(puzzle71_tests PRIVATE secp256k1)
+  endif()
   target_compile_definitions(puzzle71_tests PRIVATE PUZZLE71_TESTING=1)
   target_include_directories(puzzle71_tests PRIVATE
     src
     third_party/BitCrack
+    third_party/bitcoin-core-secp256k1/include
   )
   add_test(NAME puzzle71_tests COMMAND puzzle71_tests)
 endif()
