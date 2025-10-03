@@ -587,9 +587,11 @@ void Puzzle71Solver::Run() {
             auto& planner = context.planner;
             auto& executor = context.executor;
 
+            // Start with larger batch for high-memory GPUs (H20 97GB)
+            // Self-adaptive logic will adjust based on actual performance
             std::uint64_t desired_keys_hint = deterministic_launch_config
                                                    ? deterministic_launch_config->keys_total
-                                                   : 67'108'864ULL;
+                                                   : 268'435'456ULL;  // 256M keys (up from 67M)
 
             bool use_resume_config = false;
             if (resume_manifest && !resume_consumed) {
