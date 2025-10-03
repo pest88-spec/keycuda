@@ -844,9 +844,11 @@ void Puzzle71Solver::Run() {
                         keys_per_sec = static_cast<double>(processed) * 1'000'000.0 /
                                        static_cast<double>(step.elapsed_us);
                     }
-                    const double target_ms = 25.0;
+                    // Optimize for H20 GPU (97GB VRAM): Use larger batches for better GPU utilization
+                    // Target 200-400ms per batch to keep GPU saturated (not 25ms which causes thrashing)
+                    const double target_ms = 300.0;  // Increased from 25ms to 300ms for H20 GPU
                     const double target_keys = keys_per_sec * (target_ms / 1000.0);
-                    constexpr std::uint64_t kMinKeys = 512;
+                    constexpr std::uint64_t kMinKeys = 100'000'000ULL;  // 100M minimum (up from 512) to ensure GPU saturation
                     constexpr std::uint64_t kMaxKeys = gpu::kMaxKeysPerBatch;
                     if (target_keys > 0.0) {
                         desired_keys_hint = static_cast<std::uint64_t>(target_keys);
