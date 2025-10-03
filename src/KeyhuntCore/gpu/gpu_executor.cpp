@@ -30,6 +30,26 @@ struct SupportsUpdatePrivateKeys<
     std::void_t<decltype(std::declval<T&>().updatePrivateKeys(
         std::declval<const std::vector<secp256k1::uint256>&>()))>> : std::true_type {};
 
+// SFINAE helper: call updatePrivateKeys when supported
+template <typename DeviceKeys>
+cudaError_t TryRefreshPrivateKeys(
+    DeviceKeys& device_keys,
+    const std::vector<secp256k1::uint256>& scalars,
+    std::true_type) {
+    return device_keys.updatePrivateKeys(scalars);
+}
+
+// SFINAE helper: return error when not supported
+template <typename DeviceKeys>
+cudaError_t TryRefreshPrivateKeys(
+    DeviceKeys& device_keys,
+    const std::vector<secp256k1::uint256>& scalars,
+    std::false_type) {
+    (void)device_keys;
+    (void)scalars;
+    return cudaErrorNotSupported;
+}
+
 std::vector<secp256k1::uint256> ToBitCrackScalars(const std::vector<core::UInt256>& scalars) {
     std::vector<secp256k1::uint256> out;
     out.reserve(scalars.size());
@@ -290,25 +310,27 @@ void GpuExecutor::PrepareBatch(const BatchConfig& config,
         auto refresh_existing_config = [&]() -> bool {
             CheckCuda(cudaSetDevice(device_id_), "cudaSetDevice");
 
-            if constexpr (SupportsUpdatePrivateKeys<CudaDeviceKeys>::value) {
-                auto status = device_keys_.updatePrivateKeys(scalars);
-                if (status != cudaSuccess) {
-                    if (verbose_) {
-                        std::cerr << "[warn] updatePrivateKeys failed (" << cudaGetErrorString(status)
-                                  << "), falling back to reinitialization" << std::endl;
-                    }
-                    return false;
+            // Use SFINAE overload to avoid compilation errors
+            auto status = TryRefreshPrivateKeys(
+                device_keys_,
+                scalars,
+                typename SupportsUpdatePrivateKeys<CudaDeviceKeys>::type{}
+            );
+
+            if (status != cudaSuccess) {
+                if (verbose_ && status != cudaErrorNotSupported) {
+                    std::cerr << "[warn] updatePrivateKeys failed (" << cudaGetErrorString(status)
+                              << "), falling back to reinitialization" << std::endl;
                 }
-                for (int i = 1; i <= 256; ++i) {
-                    CheckCuda(device_keys_.doStep(), "device_keys_.doStep");
-                }
-                PrepareResultBuffers(batch.scalars.size());
-                last_config_ = config_;
-                return true;
-            } else {
-                (void)scalars;
                 return false;
             }
+
+            for (int i = 1; i <= 256; ++i) {
+                CheckCuda(device_keys_.doStep(), "device_keys_.doStep");
+            }
+            PrepareResultBuffers(batch.scalars.size());
+            last_config_ = config_;
+            return true;
         };
 
         try {
