@@ -828,7 +828,7 @@ void Puzzle71Solver::Run() {
                     const double target_ms = 25.0;
                     const double target_keys = keys_per_sec * (target_ms / 1000.0);
                     constexpr std::uint64_t kMinKeys = 512;
-                    constexpr std::uint64_t kMaxKeys = 4'194'304;
+                    constexpr std::uint64_t kMaxKeys = gpu::kMaxKeysPerBatch;
                     if (target_keys > 0.0) {
                         desired_keys_hint = static_cast<std::uint64_t>(target_keys);
                         desired_keys_hint = std::clamp(desired_keys_hint, kMinKeys, kMaxKeys);

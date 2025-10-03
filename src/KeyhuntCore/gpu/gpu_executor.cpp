@@ -226,7 +226,7 @@ void GpuExecutor::PrepareBatch(const BatchConfig& config,
         size_t free_mem = 0;
         size_t total_mem = 0;
         if (cudaMemGetInfo(&free_mem, &total_mem) == cudaSuccess) {
-            std::size_t min_free = static_cast<std::size_t>(total_mem / 10);  // keep 10% free
+            std::size_t min_free = static_cast<std::size_t>(512ULL * 1024 * 1024);  // keep at least 512 MB free
             if (verbose_) {
                 std::cout << "[debug] GPU memory: used="
                           << (total_mem - free_mem) / (1024 * 1024)
