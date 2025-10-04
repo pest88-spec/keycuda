@@ -32,8 +32,8 @@ public:
     void SetDeterministicLaunchConfig(const puzzle71::kernel::KernelLaunchConfig& config);
 
     // Empirical limits for secp256k1 batch operations (VanitySearch/BitCrack proven)
-    // Higher values (>32) cause register spillage on all architectures
-    static constexpr int kMaxPointsPerThread = 32;
+    // With __launch_bounds__ optimization, higher PPT works well on modern GPUs
+    static constexpr int kMaxPointsPerThread = 128;
 
 private:
     int device_id_{0};
