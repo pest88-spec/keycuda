@@ -1,0 +1,74 @@
+diff --git a/CudaKeySearchDevice/CudaDeviceKeys.cu b/CudaKeySearchDevice/CudaDeviceKeys.cu
+index 5ffae4c..11bfa78 100644
+--- a/CudaKeySearchDevice/CudaDeviceKeys.cu
++++ b/CudaKeySearchDevice/CudaDeviceKeys.cu
+@@ -254,6 +254,50 @@ cudaError_t CudaDeviceKeys::init(int blocks, int threads, int pointsPerThread, c
+ 	return cudaSuccess;
+ }
+ 
++cudaError_t CudaDeviceKeys::updatePrivateKeys(const std::vector<secp256k1::uint256> &privateKeys)
++{
++	size_t expected = static_cast<size_t>(_blocks) * _threads * _pointsPerThread;
++	if(privateKeys.size() != expected) {
++		return cudaErrorInvalidValue;
++	}
++
++	if(_devPrivate == NULL || _devChain == NULL) {
++		return cudaErrorInvalidDevicePointer;
++	}
++
++	unsigned int *tmp = new unsigned int[expected * 8];
++
++	for(int block = 0; block < _blocks; block++) {
++		for(int thread = 0; thread < _threads; thread++) {
++			for(int idx = 0; idx < _pointsPerThread; idx++) {
++
++				int index = getIndex(block, thread, idx);
++				splatBigInt(tmp, block, thread, idx, privateKeys[index]);
++			}
++		}
++	}
++
++	cudaError_t err = cudaMemcpy(_devPrivate,
++							 tmp,
++							 expected * sizeof(unsigned int) * 8,
++							 cudaMemcpyHostToDevice);
++
++	delete[] tmp;
++
++	if(err) {
++		return err;
++	}
++
++	std::size_t chain_words = static_cast<std::size_t>(_blocks) * _threads * _pointsPerThread * 8;
++	err = cudaMemset(_devChain, 0, chain_words * sizeof(unsigned int));
++	if(err) {
++		return err;
++	}
++
++	_step = 0;
++	return cudaSuccess;
++}
++
+ void CudaDeviceKeys::clearPublicKeys()
+ {
+ 	cudaFree(_devX);
+diff --git a/CudaKeySearchDevice/CudaDeviceKeys.h b/CudaKeySearchDevice/CudaDeviceKeys.h
+index f2407f1..3d84edd 100644
+--- a/CudaKeySearchDevice/CudaDeviceKeys.h
++++ b/CudaKeySearchDevice/CudaDeviceKeys.h
+@@ -67,6 +67,7 @@ public:
+ 	}
+ 
+ 	cudaError_t init(int blocks, int threads, int pointsPerThread, const std::vector<secp256k1::uint256> &privateKeys);
++	cudaError_t updatePrivateKeys(const std::vector<secp256k1::uint256> &privateKeys);
+ 
+ 	bool selfTest(const std::vector<secp256k1::uint256> &privateKeys);
+ 
+@@ -78,4 +79,4 @@ public:
+ 
+ };
+ 
+-#endif
+\ No newline at end of file
++#endif

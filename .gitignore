@@ -15,6 +15,7 @@ telemetry/
 # Documentation
 AGENTS.md
 docs/
+!docs/third_party_patches/
 
 # AI guidance files (local use only)
 specs/
