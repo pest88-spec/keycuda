@@ -12,7 +12,8 @@ set(CMAKE_POSITION_INDEPENDENT_CODE ON)
 
 # Reproducible builds
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
-set(CMAKE_CUDA_ARCHITECTURES 75-real 86-real 89-real)
+# Support Turing (75), Ampere (86), Ada Lovelace (89), Hopper (90)
+set(CMAKE_CUDA_ARCHITECTURES 75-real 86-real 89-real 90-real)
 set(CMAKE_CUDA_SEPARABLE_COMPILATION ON)
 
 if(NOT CMAKE_BUILD_TYPE)
@@ -94,7 +95,7 @@ else()
   target_compile_definitions(Puzzle71Solver PRIVATE SECP256K1_AVAILABLE=0)
 endif()
 
-set_target_properties(Puzzle71Solver PROPERTIES CUDA_ARCHITECTURES "75;86;89")
+set_target_properties(Puzzle71Solver PROPERTIES CUDA_ARCHITECTURES "75;86;89;90")
 
 # Link dependencies (order matters: CUDA runtime must be linked before OpenSSL)
 find_package(OpenSSL REQUIRED)
