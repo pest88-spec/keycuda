@@ -540,6 +540,12 @@ void Puzzle71Solver::Run() {
         std::cout << "[WARNING] Super mode enabled - security restrictions bypassed for testing" << std::endl;
     }
 
+    // Enable register audit for performance debugging
+    if (options_.verbose) {
+        puzzle71::kernel::EnableRegisterAudit(true);
+        DebugLog(options_, "[debug] Register audit enabled for kernel profiling");
+    }
+
     DebugLog(options_, "[debug] Detecting CUDA devices...");
     auto device_ids = options_.device_ids;
     const std::uint32_t available_devices = DetectCudaDeviceCount();

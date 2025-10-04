@@ -1,0 +1,289 @@
+./Puzzle71Solver \
+  --keyspace 0x101d83270fa2bc7e0c:0x101D83600000000000 \
+  --target-address 19vkiEajfhuZ8bs8Zu2jgmC6oqZbWqhxhG \
+  --operator-id quick-test \
+  --operator-purpose "Puzzle 69 validation" \
+  --device 0 \
+  --super \
+  --verbose
+[super] Computing target hash from address: 19vkiEajfhuZ8bs8Zu2jgmC6oqZbWqhxhG
+[super] Successfully decoded address to HASH160: 0x61eb8a50 0xc86b0584 0xbb727dd6 0x5bed8d24 0xd6d5aa
+[WARNING] Super mode enabled - security restrictions bypassed for testing
+[debug] Detecting CUDA devices...
+[debug] Found 1 CUDA device(s)
+[debug] Building schedule for 1 device(s)...
+[debug] Schedule created with 1 shard(s)
+[info] Starting GPU scan
+[debug] Processing shard [0x0000000000000000000000000000000000000000000000101d83270fa2bc7e0c : 0x0000000000000000000000000000000000000000000000101d83600000000000]
+[debug] Created 1 partition(s)
+[debug] Partition [0x0000000000000000000000000000000000000000000000101d83270fa2bc7e0c : 0x0000000000000000000000000000000000000000000000101d83600000000000]
+[debug] GpuExecutor: Setting device 0
+[debug] GpuExecutor: Getting device properties...
+[debug] GpuExecutor: Uploading target HASH160...
+[debug] GpuExecutor: Constructor complete
+[gpu] Device 0: NVIDIA H20 (VRAM: 97366 MB, SM count: 78, compute capability: 9.0)
+[debug] Planned batch keys=9584640
+[debug] PrepareBatch grid=390 block=384 points/thread=64 keys_total=9584640 start=0x0000000000000000000000000000000000000000000000101d83270fa2bc7e0c
+[debug] GPU memory: used=43450MB free=53916MB threshold=512MB
+[debug] Prepared batch starting at 0x0000000000000000000000000000000000000000000000101d83270fa2bc7e0c
+[debug] Launching fused kernel grid=390 block=384 points/thread=64
+[debug] Kernel completed
+[debug] Kernel completed elapsed_us=20066
+[debug] Execute result: processed=9584640 elapsed_us=20066 candidates=0
+[status] batch 1 | chunk=0x0000000000000000000000000000000000000000000000101d83270fa2bc7e0c | size=9.58 Mkeys | elapsed=0.02s | rate=478 Mkeys/s | total=9.58 Mkeys | avg=478 Mkeys/s
+[debug] Planned batch keys=9584640
+[debug] PrepareBatch grid=390 block=384 points/thread=64 keys_total=9584640 start=0x0000000000000000000000000000000000000000000000101d83270fa34ebe0c
+[debug] GPU memory: used=44334MB free=53032MB threshold=512MB
+[debug] Prepared batch starting at 0x0000000000000000000000000000000000000000000000101d83270fa34ebe0c
+[debug] Launching fused kernel grid=390 block=384 points/thread=64
+[debug] Kernel completed
+[debug] Kernel completed elapsed_us=19767
+[debug] Execute result: processed=9584640 elapsed_us=19767 candidates=0
+[status] batch 2 | chunk=0x0000000000000000000000000000000000000000000000101d83270fa34ebe0c | size=9.58 Mkeys | elapsed=0.02s | rate=485 Mkeys/s | total=19.2 Mkeys | avg=481 Mkeys/s
+[debug] Planned batch keys=9584640
+[debug] PrepareBatch grid=390 block=384 points/thread=64 keys_total=9584640 start=0x0000000000000000000000000000000000000000000000101d83270fa3e0fe0c
+[debug] GPU memory: used=44334MB free=53032MB threshold=512MB
+[debug] Prepared batch starting at 0x0000000000000000000000000000000000000000000000101d83270fa3e0fe0c
+[debug] Launching fused kernel grid=390 block=384 points/thread=64
+[debug] Kernel completed
+[debug] Kernel completed elapsed_us=9016
+[debug] Execute result: processed=9584640 elapsed_us=9016 candidates=0
+[status] batch 3 | chunk=0x0000000000000000000000000000000000000000000000101d83270fa3e0fe0c | size=9.58 Mkeys | elapsed=0.01s | rate=1.06 Gkeys/s | total=28.8 Mkeys | avg=589 Mkeys/s
+[debug] Planned batch keys=9584640
+[debug] PrepareBatch grid=390 block=384 points/thread=64 keys_total=9584640 start=0x0000000000000000000000000000000000000000000000101d83270fa4733e0c
+[debug] GPU memory: used=38126MB free=59240MB threshold=512MB
+[debug] Prepared batch starting at 0x0000000000000000000000000000000000000000000000101d83270fa4733e0c
+[debug] Launching fused kernel grid=390 block=384 points/thread=64
+[debug] Kernel completed
+[debug] Kernel completed elapsed_us=8966
+[debug] Execute result: processed=9584640 elapsed_us=8966 candidates=0
+[status] batch 4 | chunk=0x0000000000000000000000000000000000000000000000101d83270fa4733e0c | size=9.58 Mkeys | elapsed=0.01s | rate=1.07 Gkeys/s | total=38.3 Mkeys | avg=663 Mkeys/s
+[debug] Planned batch keys=9584640
+[debug] PrepareBatch grid=390 block=384 points/thread=64 keys_total=9584640 start=0x0000000000000000000000000000000000000000000000101d83270fa5057e0c
+[debug] GPU memory: used=38126MB free=59240MB threshold=512MB
+[debug] Prepared batch starting at 0x0000000000000000000000000000000000000000000000101d83270fa5057e0c
+[debug] Launching fused kernel grid=390 block=384 points/thread=64
+[debug] Kernel completed
+[debug] Kernel completed elapsed_us=8973
+[debug] Execute result: processed=9584640 elapsed_us=8973 candidates=0
+[status] batch 5 | chunk=0x0000000000000000000000000000000000000000000000101d83270fa5057e0c | size=9.58 Mkeys | elapsed=0.01s | rate=1.07 Gkeys/s | total=47.9 Mkeys | avg=718 Mkeys/s
+[debug] Planned batch keys=9584640
+[debug] PrepareBatch grid=390 block=384 points/thread=64 keys_total=9584640 start=0x0000000000000000000000000000000000000000000000101d83270fa597be0c
+[debug] GPU memory: used=38126MB free=59240MB threshold=512MB
+[debug] Prepared batch starting at 0x0000000000000000000000000000000000000000000000101d83270fa597be0c
+[debug] Launching fused kernel grid=390 block=384 points/thread=64
+[debug] Kernel completed
+[debug] Kernel completed elapsed_us=8981
+[debug] Execute result: processed=9584640 elapsed_us=8981 candidates=0
+[status] batch 6 | chunk=0x0000000000000000000000000000000000000000000000101d83270fa597be0c | size=9.58 Mkeys | elapsed=0.01s | rate=1.07 Gkeys/s | total=57.5 Mkeys | avg=759 Mkeys/s
+[debug] Planned batch keys=9584640
+[debug] PrepareBatch grid=390 block=384 points/thread=64 keys_total=9584640 start=0x0000000000000000000000000000000000000000000000101d83270fa629fe0c
+[debug] GPU memory: used=38126MB free=59240MB threshold=512MB
+[debug] Prepared batch starting at 0x0000000000000000000000000000000000000000000000101d83270fa629fe0c
+[debug] Launching fused kernel grid=390 block=384 points/thread=64
+[debug] Kernel completed
+[debug] Kernel completed elapsed_us=8950
+[debug] Execute result: processed=9584640 elapsed_us=8950 candidates=0
+[status] batch 7 | chunk=0x0000000000000000000000000000000000000000000000101d83270fa629fe0c | size=9.58 Mkeys | elapsed=0.01s | rate=1.07 Gkeys/s | total=67.1 Mkeys | avg=792 Mkeys/s
+[debug] Planned batch keys=9584640
+[debug] PrepareBatch grid=390 block=384 points/thread=64 keys_total=9584640 start=0x0000000000000000000000000000000000000000000000101d83270fa6bc3e0c
+[debug] GPU memory: used=38126MB free=59240MB threshold=512MB
+[debug] Prepared batch starting at 0x0000000000000000000000000000000000000000000000101d83270fa6bc3e0c
+[debug] Launching fused kernel grid=390 block=384 points/thread=64
+[debug] Kernel completed
+[debug] Kernel completed elapsed_us=8964
+[debug] Execute result: processed=9584640 elapsed_us=8964 candidates=0
+[status] batch 8 | chunk=0x0000000000000000000000000000000000000000000000101d83270fa6bc3e0c | size=9.58 Mkeys | elapsed=0.01s | rate=1.07 Gkeys/s | total=76.7 Mkeys | avg=818 Mkeys/s
+[debug] Planned batch keys=9584640
+[debug] PrepareBatch grid=390 block=384 points/thread=64 keys_total=9584640 start=0x0000000000000000000000000000000000000000000000101d83270fa74e7e0c
+[debug] GPU memory: used=38126MB free=59240MB threshold=512MB
+[debug] Prepared batch starting at 0x0000000000000000000000000000000000000000000000101d83270fa74e7e0c
+[debug] Launching fused kernel grid=390 block=384 points/thread=64
+[debug] Kernel completed
+[debug] Kernel completed elapsed_us=8933
+[debug] Execute result: processed=9584640 elapsed_us=8933 candidates=0
+[status] batch 9 | chunk=0x0000000000000000000000000000000000000000000000101d83270fa74e7e0c | size=9.58 Mkeys | elapsed=0.01s | rate=1.07 Gkeys/s | total=86.3 Mkeys | avg=841 Mkeys/s
+[debug] Planned batch keys=9584640
+[debug] PrepareBatch grid=390 block=384 points/thread=64 keys_total=9584640 start=0x0000000000000000000000000000000000000000000000101d83270fa7e0be0c
+[debug] GPU memory: used=38126MB free=59240MB threshold=512MB
+[debug] Prepared batch starting at 0x0000000000000000000000000000000000000000000000101d83270fa7e0be0c
+[debug] Launching fused kernel grid=390 block=384 points/thread=64
+[debug] Kernel completed
+[debug] Kernel completed elapsed_us=9014
+[debug] Execute result: processed=9584640 elapsed_us=9014 candidates=0
+[status] batch 10 | chunk=0x0000000000000000000000000000000000000000000000101d83270fa7e0be0c | size=9.58 Mkeys | elapsed=0.01s | rate=1.06 Gkeys/s | total=95.8 Mkeys | avg=859 Mkeys/s
+[debug] Planned batch keys=9584640
+[debug] PrepareBatch grid=390 block=384 points/thread=64 keys_total=9584640 start=0x0000000000000000000000000000000000000000000000101d83270fa872fe0c
+[debug] GPU memory: used=38126MB free=59240MB threshold=512MB
+[debug] Prepared batch starting at 0x0000000000000000000000000000000000000000000000101d83270fa872fe0c
+[debug] Launching fused kernel grid=390 block=384 points/thread=64
+[debug] Kernel completed
+[debug] Kernel completed elapsed_us=8941
+[debug] Execute result: processed=9584640 elapsed_us=8941 candidates=0
+[status] batch 11 | chunk=0x0000000000000000000000000000000000000000000000101d83270fa872fe0c | size=9.58 Mkeys | elapsed=0.01s | rate=1.07 Gkeys/s | total=105 Mkeys | avg=874 Mkeys/s
+[debug] Planned batch keys=9584640
+[debug] PrepareBatch grid=390 block=384 points/thread=64 keys_total=9584640 start=0x0000000000000000000000000000000000000000000000101d83270fa9053e0c
+[debug] GPU memory: used=38126MB free=59240MB threshold=512MB
+[debug] Prepared batch starting at 0x0000000000000000000000000000000000000000000000101d83270fa9053e0c
+[debug] Launching fused kernel grid=390 block=384 points/thread=64
+[debug] Kernel completed
+[debug] Kernel completed elapsed_us=8925
+[debug] Execute result: processed=9584640 elapsed_us=8925 candidates=0
+[status] batch 12 | chunk=0x0000000000000000000000000000000000000000000000101d83270fa9053e0c | size=9.58 Mkeys | elapsed=0.01s | rate=1.07 Gkeys/s | total=115 Mkeys | avg=888 Mkeys/s
+[debug] Planned batch keys=9584640
+[debug] PrepareBatch grid=390 block=384 points/thread=64 keys_total=9584640 start=0x0000000000000000000000000000000000000000000000101d83270fa9977e0c
+[debug] GPU memory: used=38126MB free=59240MB threshold=512MB
+[debug] Prepared batch starting at 0x0000000000000000000000000000000000000000000000101d83270fa9977e0c
+[debug] Launching fused kernel grid=390 block=384 points/thread=64
+[debug] Kernel completed
+[debug] Kernel completed elapsed_us=8996
+[debug] Execute result: processed=9584640 elapsed_us=8996 candidates=0
+[status] batch 13 | chunk=0x0000000000000000000000000000000000000000000000101d83270fa9977e0c | size=9.58 Mkeys | elapsed=0.01s | rate=1.07 Gkeys/s | total=125 Mkeys | avg=900 Mkeys/s
+[debug] Planned batch keys=9584640
+[debug] PrepareBatch grid=390 block=384 points/thread=64 keys_total=9584640 start=0x0000000000000000000000000000000000000000000000101d83270faa29be0c
+[debug] GPU memory: used=38126MB free=59240MB threshold=512MB
+[debug] Prepared batch starting at 0x0000000000000000000000000000000000000000000000101d83270faa29be0c
+[debug] Launching fused kernel grid=390 block=384 points/thread=64
+[debug] Kernel completed
+[debug] Kernel completed elapsed_us=9039
+[debug] Execute result: processed=9584640 elapsed_us=9039 candidates=0
+[status] batch 14 | chunk=0x0000000000000000000000000000000000000000000000101d83270faa29be0c | size=9.58 Mkeys | elapsed=0.01s | rate=1.06 Gkeys/s | total=134 Mkeys | avg=910 Mkeys/s
+[debug] Planned batch keys=9584640
+[debug] PrepareBatch grid=390 block=384 points/thread=64 keys_total=9584640 start=0x0000000000000000000000000000000000000000000000101d83270faabbfe0c
+[debug] GPU memory: used=38126MB free=59240MB threshold=512MB
+[debug] Prepared batch starting at 0x0000000000000000000000000000000000000000000000101d83270faabbfe0c
+[debug] Launching fused kernel grid=390 block=384 points/thread=64
+[debug] Kernel completed
+[debug] Kernel completed elapsed_us=19425
+[debug] Execute result: processed=9584640 elapsed_us=19425 candidates=0
+[status] batch 15 | chunk=0x0000000000000000000000000000000000000000000000101d83270faabbfe0c | size=9.58 Mkeys | elapsed=0.02s | rate=493 Mkeys/s | total=144 Mkeys | avg=861 Mkeys/s
+[debug] Planned batch keys=9584640
+[debug] PrepareBatch grid=390 block=384 points/thread=64 keys_total=9584640 start=0x0000000000000000000000000000000000000000000000101d83270fab4e3e0c
+[debug] GPU memory: used=44334MB free=53032MB threshold=512MB
+[debug] Prepared batch starting at 0x0000000000000000000000000000000000000000000000101d83270fab4e3e0c
+[debug] Launching fused kernel grid=390 block=384 points/thread=64
+[debug] Kernel completed
+[debug] Kernel completed elapsed_us=20338
+[debug] Execute result: processed=9584640 elapsed_us=20338 candidates=0
+[status] batch 16 | chunk=0x0000000000000000000000000000000000000000000000101d83270fab4e3e0c | size=9.58 Mkeys | elapsed=0.02s | rate=471 Mkeys/s | total=153 Mkeys | avg=819 Mkeys/s
+[debug] Planned batch keys=9584640
+[debug] PrepareBatch grid=390 block=384 points/thread=64 keys_total=9584640 start=0x0000000000000000000000000000000000000000000000101d83270fabe07e0c
+[debug] GPU memory: used=44334MB free=53032MB threshold=512MB
+[debug] Prepared batch starting at 0x0000000000000000000000000000000000000000000000101d83270fabe07e0c
+[debug] Launching fused kernel grid=390 block=384 points/thread=64
+[debug] Kernel completed
+[debug] Kernel completed elapsed_us=19219
+[debug] Execute result: processed=9584640 elapsed_us=19219 candidates=0
+[status] batch 17 | chunk=0x0000000000000000000000000000000000000000000000101d83270fabe07e0c | size=9.58 Mkeys | elapsed=0.02s | rate=499 Mkeys/s | total=163 Mkeys | avg=789 Mkeys/s
+[debug] Planned batch keys=9584640
+[debug] PrepareBatch grid=390 block=384 points/thread=64 keys_total=9584640 start=0x0000000000000000000000000000000000000000000000101d83270fac72be0c
+[debug] GPU memory: used=44334MB free=53032MB threshold=512MB
+[debug] Prepared batch starting at 0x0000000000000000000000000000000000000000000000101d83270fac72be0c
+[debug] Launching fused kernel grid=390 block=384 points/thread=64
+[debug] Kernel completed
+[debug] Kernel completed elapsed_us=20737
+[debug] Execute result: processed=9584640 elapsed_us=20737 candidates=0
+[status] batch 18 | chunk=0x0000000000000000000000000000000000000000000000101d83270fac72be0c | size=9.58 Mkeys | elapsed=0.02s | rate=462 Mkeys/s | total=173 Mkeys | avg=759 Mkeys/s
+[debug] Planned batch keys=9584640
+[debug] PrepareBatch grid=390 block=384 points/thread=64 keys_total=9584640 start=0x0000000000000000000000000000000000000000000000101d83270fad04fe0c
+[debug] GPU memory: used=44334MB free=53032MB threshold=512MB
+[debug] Prepared batch starting at 0x0000000000000000000000000000000000000000000000101d83270fad04fe0c
+[debug] Launching fused kernel grid=390 block=384 points/thread=64
+[debug] Kernel completed
+[debug] Kernel completed elapsed_us=19186
+[debug] Execute result: processed=9584640 elapsed_us=19186 candidates=0
+[status] batch 19 | chunk=0x0000000000000000000000000000000000000000000000101d83270fad04fe0c | size=9.58 Mkeys | elapsed=0.02s | rate=500 Mkeys/s | total=182 Mkeys | avg=739 Mkeys/s
+[debug] Planned batch keys=9584640
+[debug] PrepareBatch grid=390 block=384 points/thread=64 keys_total=9584640 start=0x0000000000000000000000000000000000000000000000101d83270fad973e0c
+[debug] GPU memory: used=44334MB free=53032MB threshold=512MB
+[debug] Prepared batch starting at 0x0000000000000000000000000000000000000000000000101d83270fad973e0c
+[debug] Launching fused kernel grid=390 block=384 points/thread=64
+[debug] Kernel completed
+[debug] Kernel completed elapsed_us=20392
+[debug] Execute result: processed=9584640 elapsed_us=20392 candidates=0
+[status] batch 20 | chunk=0x0000000000000000000000000000000000000000000000101d83270fad973e0c | size=9.58 Mkeys | elapsed=0.02s | rate=470 Mkeys/s | total=192 Mkeys | avg=718 Mkeys/s
+[debug] Planned batch keys=9584640
+[debug] PrepareBatch grid=390 block=384 points/thread=64 keys_total=9584640 start=0x0000000000000000000000000000000000000000000000101d83270fae297e0c
+[debug] GPU memory: used=44334MB free=53032MB threshold=512MB
+[debug] Prepared batch starting at 0x0000000000000000000000000000000000000000000000101d83270fae297e0c
+[debug] Launching fused kernel grid=390 block=384 points/thread=64
+[debug] Kernel completed
+[debug] Kernel completed elapsed_us=19708
+[debug] Execute result: processed=9584640 elapsed_us=19708 candidates=0
+[status] batch 21 | chunk=0x0000000000000000000000000000000000000000000000101d83270fae297e0c | size=9.58 Mkeys | elapsed=0.02s | rate=486 Mkeys/s | total=201 Mkeys | avg=702 Mkeys/s
+[debug] Planned batch keys=9584640
+[debug] PrepareBatch grid=390 block=384 points/thread=64 keys_total=9584640 start=0x0000000000000000000000000000000000000000000000101d83270faebbbe0c
+[debug] GPU memory: used=44334MB free=53032MB threshold=512MB
+[debug] Prepared batch starting at 0x0000000000000000000000000000000000000000000000101d83270faebbbe0c
+[debug] Launching fused kernel grid=390 block=384 points/thread=64
+[debug] Kernel completed
+[debug] Kernel completed elapsed_us=18990
+[debug] Execute result: processed=9584640 elapsed_us=18990 candidates=0
+[status] batch 22 | chunk=0x0000000000000000000000000000000000000000000000101d83270faebbbe0c | size=9.58 Mkeys | elapsed=0.02s | rate=505 Mkeys/s | total=211 Mkeys | avg=690 Mkeys/s
+[debug] Planned batch keys=9584640
+[debug] PrepareBatch grid=390 block=384 points/thread=64 keys_total=9584640 start=0x0000000000000000000000000000000000000000000000101d83270faf4dfe0c
+[debug] GPU memory: used=44334MB free=53032MB threshold=512MB
+[debug] Prepared batch starting at 0x0000000000000000000000000000000000000000000000101d83270faf4dfe0c
+[debug] Launching fused kernel grid=390 block=384 points/thread=64
+[debug] Kernel completed
+[debug] Kernel completed elapsed_us=18855
+[debug] Execute result: processed=9584640 elapsed_us=18855 candidates=0
+[status] batch 23 | chunk=0x0000000000000000000000000000000000000000000000101d83270faf4dfe0c | size=9.58 Mkeys | elapsed=0.02s | rate=508 Mkeys/s | total=220 Mkeys | avg=680 Mkeys/s
+[debug] Planned batch keys=9584640
+[debug] PrepareBatch grid=390 block=384 points/thread=64 keys_total=9584640 start=0x0000000000000000000000000000000000000000000000101d83270fafe03e0c
+[debug] GPU memory: used=44334MB free=53032MB threshold=512MB
+[debug] Prepared batch starting at 0x0000000000000000000000000000000000000000000000101d83270fafe03e0c
+[debug] Launching fused kernel grid=390 block=384 points/thread=64
+[debug] Kernel completed
+[debug] Kernel completed elapsed_us=20678
+[debug] Execute result: processed=9584640 elapsed_us=20678 candidates=0
+[status] batch 24 | chunk=0x0000000000000000000000000000000000000000000000101d83270fafe03e0c | size=9.58 Mkeys | elapsed=0.02s | rate=464 Mkeys/s | total=230 Mkeys | avg=667 Mkeys/s
+[debug] Planned batch keys=9584640
+[debug] PrepareBatch grid=390 block=384 points/thread=64 keys_total=9584640 start=0x0000000000000000000000000000000000000000000000101d83270fb0727e0c
+[debug] GPU memory: used=44334MB free=53032MB threshold=512MB
+[debug] Prepared batch starting at 0x0000000000000000000000000000000000000000000000101d83270fb0727e0c
+[debug] Launching fused kernel grid=390 block=384 points/thread=64
+[debug] Kernel completed
+[debug] Kernel completed elapsed_us=19149
+[debug] Execute result: processed=9584640 elapsed_us=19149 candidates=0
+[status] batch 25 | chunk=0x0000000000000000000000000000000000000000000000101d83270fb0727e0c | size=9.58 Mkeys | elapsed=0.02s | rate=501 Mkeys/s | total=240 Mkeys | avg=658 Mkeys/s
+[debug] Planned batch keys=9584640
+[debug] PrepareBatch grid=390 block=384 points/thread=64 keys_total=9584640 start=0x0000000000000000000000000000000000000000000000101d83270fb104be0c
+[debug] GPU memory: used=44334MB free=53032MB threshold=512MB
+[debug] Prepared batch starting at 0x0000000000000000000000000000000000000000000000101d83270fb104be0c
+[debug] Launching fused kernel grid=390 block=384 points/thread=64
+[debug] Kernel completed
+[debug] Kernel completed elapsed_us=19046
+[debug] Execute result: processed=9584640 elapsed_us=19046 candidates=0
+[status] batch 26 | chunk=0x0000000000000000000000000000000000000000000000101d83270fb104be0c | size=9.58 Mkeys | elapsed=0.02s | rate=503 Mkeys/s | total=249 Mkeys | avg=650 Mkeys/s
+[debug] Planned batch keys=9584640
+[debug] PrepareBatch grid=390 block=384 points/thread=64 keys_total=9584640 start=0x0000000000000000000000000000000000000000000000101d83270fb196fe0c
+[debug] GPU memory: used=44334MB free=53032MB threshold=512MB
+[debug] Prepared batch starting at 0x0000000000000000000000000000000000000000000000101d83270fb196fe0c
+[debug] Launching fused kernel grid=390 block=384 points/thread=64
+[debug] Kernel completed
+[debug] Kernel completed elapsed_us=19518
+[debug] Execute result: processed=9584640 elapsed_us=19518 candidates=0
+[status] batch 27 | chunk=0x0000000000000000000000000000000000000000000000101d83270fb196fe0c | size=9.58 Mkeys | elapsed=0.02s | rate=491 Mkeys/s | total=259 Mkeys | avg=643 Mkeys/s
+[debug] Planned batch keys=9584640
+[debug] PrepareBatch grid=390 block=384 points/thread=64 keys_total=9584640 start=0x0000000000000000000000000000000000000000000000101d83270fb2293e0c
+[debug] GPU memory: used=44334MB free=53032MB threshold=512MB
+[debug] Prepared batch starting at 0x0000000000000000000000000000000000000000000000101d83270fb2293e0c
+[debug] Launching fused kernel grid=390 block=384 points/thread=64
+[debug] Kernel completed
+[debug] Kernel completed elapsed_us=20410
+[debug] Execute result: processed=9584640 elapsed_us=20410 candidates=0
+[status] batch 28 | chunk=0x0000000000000000000000000000000000000000000000101d83270fb2293e0c | size=9.58 Mkeys | elapsed=0.02s | rate=470 Mkeys/s | total=268 Mkeys | avg=634 Mkeys/s
+[debug] Planned batch keys=9584640
+[debug] PrepareBatch grid=390 block=384 points/thread=64 keys_total=9584640 start=0x0000000000000000000000000000000000000000000000101d83270fb2bb7e0c
+[debug] GPU memory: used=44334MB free=53032MB threshold=512MB
+[debug] Prepared batch starting at 0x0000000000000000000000000000000000000000000000101d83270fb2bb7e0c
+[debug] Launching fused kernel grid=390 block=384 points/thread=64
+[debug] Kernel completed
+[debug] Kernel completed elapsed_us=20154
+[debug] Execute result: processed=9584640 elapsed_us=20154 candidates=0
+[status] batch 29 | chunk=0x0000000000000000000000000000000000000000000000101d83270fb2bb7e0c | size=9.58 Mkeys | elapsed=0.02s | rate=476 Mkeys/s | total=278 Mkeys | avg=627 Mkeys/s
+[debug] Planned batch keys=9584640
+[debug] PrepareBatch grid=390 block=384 points/thread=64 keys_total=9584640 start=0x0000000000000000000000000000000000000000000000101d83270fb34dbe0c
+[debug] GPU memory: used=44334MB free=53032MB threshold=512MB
+^C

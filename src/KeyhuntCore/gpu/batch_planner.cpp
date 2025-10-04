@@ -204,9 +204,10 @@ BatchConfig BatchPlanner::Plan(const shards::ShardWalker& walker,
     }
 
     // Calculate points per thread with empirical limits for secp256k1 kernels
-    // VanitySearch/BitCrack optimal: 4-64 points/thread depending on GPU arch
+    // VanitySearch/BitCrack optimal: 4-32 points/thread depending on GPU arch
+    // Higher PPT (>32) causes register spillage and performance degradation
     constexpr int kMinPointsPerThread = 1;
-    constexpr int kMaxPointsPerThread = 64;  // Higher limit for large batches
+    constexpr int kMaxPointsPerThread = 32;  // Balanced for register pressure
     constexpr int kOptimalPointsPerThread = 16;
 
     int points_per_thread = static_cast<int>((target_keys + threads - 1) / threads);
