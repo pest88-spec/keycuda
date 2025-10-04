@@ -28,8 +28,6 @@ add_compile_options(
   "$<$<COMPILE_LANGUAGE:CUDA>:-Xcompiler=-fno-omit-frame-pointer>"
   "$<$<COMPILE_LANGUAGE:CUDA>:--expt-relaxed-constexpr>"
   "$<$<COMPILE_LANGUAGE:CUDA>:-lineinfo>"
-  # Limit register usage to improve occupancy (VanitySearch uses 64-80)
-  "$<$<COMPILE_LANGUAGE:CUDA>:-maxrregcount=80>"
 )
 
 set(PUZZLE71_CORE_SOURCES

@@ -204,10 +204,9 @@ BatchConfig BatchPlanner::Plan(const shards::ShardWalker& walker,
     }
 
     // Calculate points per thread with empirical limits for secp256k1 kernels
-    // With __launch_bounds__(256, 8), compiler optimizes registers properly
-    // VanitySearch uses PPT=256+ with launch bounds optimization
+    // Restore to value that achieved 900 Mkeys/s on H20 GPU
     constexpr int kMinPointsPerThread = 1;
-    constexpr int kMaxPointsPerThread = 128;  // Higher with launch bounds
+    constexpr int kMaxPointsPerThread = 64;
     constexpr int kOptimalPointsPerThread = 64;
 
     int points_per_thread = static_cast<int>((target_keys + threads - 1) / threads);
