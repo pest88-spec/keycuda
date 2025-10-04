@@ -1,30 +1,34 @@
-# Puzzle71Solver deterministic configuration
-project_constants:
-  puzzle:
-    target_address: "1PWo3JeB9jrGwfHDNpdGK54CRas7fsVzXU"
-    hash160: "f8455b22fa469a40654450d363959a3b932924b4"
-    keyspace:
-      start: "0x400000000000000000"
-      end: "0x7fffffffffffffffff"
-
-operator_defaults:
-  operator_id: "unset"
-  operator_purpose: "research"
-  workstation_hostname: "${HOSTNAME}"
-
-replay:
-  grid_dim: [4096, 1, 1]
-  block_dim: [256, 1, 1]
-  points_per_thread: 4096
-  deterministic_seed: 424242
-
-checkpointing:
-  interval_keys: 3000000000000   # 3×10^12 keys
-  rotation_minutes: 30
-  output_dir: "checkpoints"
-
-telemetry:
-  jsonl_dir: "telemetry"
-  prometheus_dir: "metrics"
-  throughput_floor_mkeys: 1000
-  alert_latency_ms: 2000
+{
+  "project_constants": {
+    "puzzle": {
+      "target_address": "1PWo3JeB9jrGwfHDNpdGK54CRas7fsVzXU",
+      "hash160": "F8455B22FA469A40654450D363959A3B932924B4",
+      "keyspace": {
+        "start": "0x400000000000000000",
+        "end": "0x7fffffffffffffffff"
+      }
+    }
+  },
+  "operator_defaults": {
+    "operator_id": "unset",
+    "operator_purpose": "research",
+    "workstation_hostname": "${HOSTNAME}"
+  },
+  "replay": {
+    "grid_dim": [4096, 1, 1],
+    "block_dim": [256, 1, 1],
+    "points_per_thread": 4096,
+    "deterministic_seed": 424242
+  },
+  "checkpointing": {
+    "interval_keys": 3000000000000,
+    "rotation_minutes": 30,
+    "output_dir": "checkpoints"
+  },
+  "telemetry": {
+    "jsonl_dir": "telemetry",
+    "prometheus_dir": "metrics",
+    "throughput_floor_mkeys": 1000.0,
+    "alert_latency_ms": 2000.0
+  }
+}
