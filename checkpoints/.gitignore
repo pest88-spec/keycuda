@@ -1,0 +1,13 @@
+# Ignore all checkpoint files generated during runtime
+*.json
+*.chk
+
+# Keep committed example/test checkpoint files
+!manifest-0x400000000000000000-2025-10-01T050445Z.json
+!manifest-0xa00-2025-09-28T232228Z.json
+!manifest-0xa00-2025-09-28T235743Z.json
+!manifest-0xa00-2025-09-29T003136Z.json
+!payload-0x400000000000000000-2025-10-01T050445Z.chk
+!payload-0xa00-2025-09-28T232228Z.chk
+!payload-0xa00-2025-09-28T235743Z.chk
+!payload-0xa00-2025-09-29T003136Z.chk
