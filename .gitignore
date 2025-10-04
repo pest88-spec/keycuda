@@ -35,6 +35,5 @@ build/
 .DS_Store
 Thumbs.db
 
-# Exclude singwarp directory (unrelated Python project)
-singwarp/warp2xyz/
-singwarp/venv/
+# Exclude singwarp directory (unrelated Python project with sensitive credentials)
+singwarp/
