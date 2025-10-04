@@ -3,6 +3,7 @@
 #include "cudaMath/sha256.cuh"
 #include "cudaMath/ripemd160.cuh"
 #include "compare/kernels/hash160_fused.h"
+#include "utils/endianness.h"
 
 #include <cuda_runtime.h>
 #include <openssl/evp.h>
@@ -77,16 +78,33 @@ std::array<std::uint8_t, 20> Ripemd160(const std::uint8_t* data, std::size_t len
     return out;
 }
 
-std::array<std::uint32_t, 5> DigestBytesToWords(const std::array<std::uint8_t, 20>& bytes) {
-    std::array<std::uint32_t, 5> words{};
-    for (std::size_t i = 0; i < words.size(); ++i) {
-        std::size_t offset = i * 4;
-        words[i] = static_cast<std::uint32_t>(bytes[offset]) |
-                   (static_cast<std::uint32_t>(bytes[offset + 1]) << 8) |
-                   (static_cast<std::uint32_t>(bytes[offset + 2]) << 16) |
-                   (static_cast<std::uint32_t>(bytes[offset + 3]) << 24);
+constexpr std::array<std::uint32_t, 5> kRipemdIv = {
+    0x67452301u,
+    0xefcdab89u,
+    0x98badcfeu,
+    0x10325476u,
+    0xc3d2e1f0u};
+
+std::array<std::uint32_t, 5> FinalizeDigest(const std::array<std::uint32_t, 5>& pre_final) {
+    std::array<std::uint32_t, 5> out{};
+    for (std::size_t i = 0; i < out.size(); ++i) {
+        const std::uint32_t value = pre_final[i] + kRipemdIv[(i + 1) % out.size()];
+        out[i] = puzzle71::utils::ByteSwap32(value);
     }
-    return words;
+    return out;
+}
+
+std::array<std::uint8_t, 20> WordsToBigEndianBytes(const std::array<std::uint32_t, 5>& words) {
+    std::array<std::uint8_t, 20> bytes{};
+    for (std::size_t i = 0; i < words.size(); ++i) {
+        const std::uint32_t word = words[i];
+        const std::size_t offset = i * 4;
+        bytes[offset + 0] = static_cast<std::uint8_t>((word >> 24) & 0xFF);
+        bytes[offset + 1] = static_cast<std::uint8_t>((word >> 16) & 0xFF);
+        bytes[offset + 2] = static_cast<std::uint8_t>((word >> 8) & 0xFF);
+        bytes[offset + 3] = static_cast<std::uint8_t>(word & 0xFF);
+    }
+    return bytes;
 }
 
 __global__ void Hash160CompressedKernel(const unsigned int* x_words,
@@ -116,7 +134,7 @@ TEST(Hash160ParityTest, GpuMatchesCpuForSampledKeys) {
     auto* ctx = secp256k1_context_create(SECP256K1_CONTEXT_SIGN | SECP256K1_CONTEXT_VERIFY);
     ASSERT_NE(ctx, nullptr);
 
-    std::vector<std::array<std::uint32_t, 5>> cpu_digests;
+    std::vector<std::array<std::uint8_t, 20>> cpu_digests;
     cpu_digests.reserve(kSampleCount);
 
     std::vector<unsigned int> x_words_host;
@@ -138,7 +156,7 @@ TEST(Hash160ParityTest, GpuMatchesCpuForSampledKeys) {
 
         auto sha = Sha256(compressed.data(), comp_len);
         auto hash160_bytes = Ripemd160(sha.data(), sha.size());
-        cpu_digests.push_back(DigestBytesToWords(hash160_bytes));
+        cpu_digests.push_back(hash160_bytes);
 
         const unsigned char* x_bytes = uncompressed.data() + 1;
         const unsigned char* y_bytes = uncompressed.data() + 33;
@@ -167,8 +185,8 @@ TEST(Hash160ParityTest, GpuMatchesCpuForSampledKeys) {
     Hash160CompressedKernel<<<blocks, threads_per_block>>>(d_x_words, d_y_lsw, d_digests, kSampleCount);
     ASSERT_EQ(cudaSuccess, cudaDeviceSynchronize());
 
-    std::vector<std::uint32_t> gpu_digests(cpu_digests.size() * 5);
-    ASSERT_EQ(cudaSuccess, cudaMemcpy(gpu_digests.data(), d_digests, gpu_digests.size() * sizeof(std::uint32_t), cudaMemcpyDeviceToHost));
+    std::vector<std::uint32_t> gpu_prefinal(cpu_digests.size() * 5);
+    ASSERT_EQ(cudaSuccess, cudaMemcpy(gpu_prefinal.data(), d_digests, gpu_prefinal.size() * sizeof(std::uint32_t), cudaMemcpyDeviceToHost));
 
     ASSERT_EQ(cudaSuccess, cudaFree(d_x_words));
     ASSERT_EQ(cudaSuccess, cudaFree(d_y_lsw));
@@ -177,8 +195,15 @@ TEST(Hash160ParityTest, GpuMatchesCpuForSampledKeys) {
     secp256k1_context_destroy(ctx);
 
     for (std::size_t i = 0; i < cpu_digests.size(); ++i) {
+        std::array<std::uint32_t, 5> gpu_pre{};
         for (int j = 0; j < 5; ++j) {
-            EXPECT_EQ(cpu_digests[i][j], gpu_digests[i * 5 + j]) << "Mismatch at sample " << i << " digest word " << j;
+            gpu_pre[j] = gpu_prefinal[i * 5 + j];
+        }
+        const auto gpu_final_words = FinalizeDigest(gpu_pre);
+        const auto gpu_final_bytes = WordsToBigEndianBytes(gpu_final_words);
+        for (std::size_t j = 0; j < gpu_final_bytes.size(); ++j) {
+            EXPECT_EQ(cpu_digests[i][j], gpu_final_bytes[j])
+                << "Mismatch at sample " << i << " digest byte " << j;
         }
     }
 }

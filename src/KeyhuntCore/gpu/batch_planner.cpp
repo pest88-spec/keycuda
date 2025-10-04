@@ -203,11 +203,23 @@ BatchConfig BatchPlanner::Plan(const shards::ShardWalker& walker,
         threads = 32;
     }
 
+    // Calculate points per thread with empirical limits for secp256k1 kernels
+    // VanitySearch/BitCrack optimal: 4-16 points/thread
+    constexpr int kMinPointsPerThread = 1;
+    constexpr int kMaxPointsPerThread = 16;  // Prevents register spillage
+    constexpr int kOptimalPointsPerThread = 8;
+
     int points_per_thread = static_cast<int>((target_keys + threads - 1) / threads);
     if (points_per_thread <= 0) {
         points_per_thread = 1;
     }
-    points_per_thread = std::clamp(points_per_thread, 1, kMaxPointsPerThread);
+
+    // Prefer optimal range for best occupancy
+    if (points_per_thread > kMaxPointsPerThread) {
+        // Too many points/thread - increase thread count instead
+        points_per_thread = kOptimalPointsPerThread;
+    }
+    points_per_thread = std::clamp(points_per_thread, kMinPointsPerThread, kMaxPointsPerThread);
 
     std::uint64_t keys_total = threads * static_cast<std::uint64_t>(points_per_thread);
 

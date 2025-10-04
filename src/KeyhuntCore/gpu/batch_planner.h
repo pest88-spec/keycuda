@@ -31,7 +31,9 @@ public:
 
     void SetDeterministicLaunchConfig(const puzzle71::kernel::KernelLaunchConfig& config);
 
-    static constexpr int kMaxPointsPerThread = 4096;
+    // Empirical limits for secp256k1 batch operations (VanitySearch/BitCrack proven)
+    // Higher values cause register spillage and reduce occupancy
+    static constexpr int kMaxPointsPerThread = 16;
 
 private:
     int device_id_{0};

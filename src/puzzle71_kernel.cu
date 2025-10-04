@@ -13,7 +13,9 @@ using puzzle71::gpu::DeviceResultBuffer;
 #include <atomic>
 #include <cstddef>
 #include <cstdio>
+#include <mutex>
 #include <optional>
+#include <unordered_map>
 
 #include "CudaKeySearchDevice/CudaDeviceKeys.cuh"
 #include "KeyFinderLib/KeySearchTypes.h"
@@ -58,7 +60,9 @@ cudaError_t UploadTargetHash160(const std::array<std::uint32_t, 5>& host_hash) {
 namespace {
 
 __device__ DeviceResultBuffer g_result_buffer;
-std::optional<puzzle71::kernel::KernelLaunchConfig> g_deterministic_launch;
+std::mutex g_deterministic_mutex;
+std::unordered_map<int, puzzle71::kernel::KernelLaunchConfig> g_deterministic_by_device;
+std::optional<puzzle71::kernel::KernelLaunchConfig> g_global_deterministic;
 
 __device__ inline void FinalizeDigest(const std::uint32_t in[5], std::uint32_t out[5]) {
     const std::uint32_t iv[5] = {
@@ -189,15 +193,27 @@ std::atomic<bool> g_register_audit{false};
 namespace puzzle71::kernel {
 
 KernelLaunchConfig ChooseLaunchConfig(std::uint64_t desired_threads) {
-    if (g_deterministic_launch) {
-        return *g_deterministic_launch;
+    int device_id = 0;
+    if (cudaGetDevice(&device_id) != cudaSuccess) {
+        device_id = 0;
+    }
+
+    {
+        std::lock_guard<std::mutex> lock(g_deterministic_mutex);
+        auto it = g_deterministic_by_device.find(device_id);
+        if (it != g_deterministic_by_device.end()) {
+            return it->second;
+        }
+        if (g_global_deterministic) {
+            return *g_global_deterministic;
+        }
     }
 
     KernelLaunchConfig config{};
 
     // Get GPU device properties for optimal configuration
     cudaDeviceProp device_props;
-    cudaError_t err = cudaGetDeviceProperties(&device_props, 0);
+    cudaError_t err = cudaGetDeviceProperties(&device_props, device_id);
     if (err != cudaSuccess) {
         // Fallback to conservative defaults if device query fails
         device_props.multiProcessorCount = 28;
@@ -210,14 +226,29 @@ KernelLaunchConfig ChooseLaunchConfig(std::uint64_t desired_threads) {
     int min_grid = 0;
     int block_size = 0;
     cudaError_t occ_status = cudaOccupancyMaxPotentialBlockSize(&min_grid, &block_size, Puzzle71FusedKernel, 0, 0);
-    if (occ_status != cudaSuccess || block_size <= 0) {
+
+    // Force smaller block size for better occupancy on high-SM GPUs (H20: 168 SM)
+    // Empirical best: 256 threads/block for secp256k1 batch operations
+    if (device_props.multiProcessorCount >= 100) {
+        // High-end GPUs (H20, A100, H100): prioritize more blocks over larger blocks
+        block_size = 256;
+    } else if (occ_status != cudaSuccess || block_size <= 0) {
         block_size = std::min(static_cast<int>(device_props.maxThreadsPerBlock), 1024);
     }
+
+    // Clamp block size to proven range for VanitySearch/BitCrack kernels
+    block_size = std::clamp(block_size, 128, 512);
 
     // Calculate optimal grid size to fully utilize all SMs
     unsigned int sm_count = device_props.multiProcessorCount;
     unsigned int max_blocks_per_sm = device_props.maxThreadsPerMultiProcessor / block_size;
-    unsigned int optimal_blocks = sm_count * std::max<unsigned int>(max_blocks_per_sm, 1);
+
+    // Target 4-8 blocks per SM for high occupancy
+    unsigned int target_blocks_per_sm = std::min<unsigned int>(
+        max_blocks_per_sm,
+        sm_count >= 100 ? 8 : 4  // More blocks for high-SM GPUs
+    );
+    unsigned int optimal_blocks = sm_count * target_blocks_per_sm;
 
     // Don't exceed device limits but maximize utilization
     std::uint64_t blocks = std::min<std::uint64_t>(optimal_blocks,
@@ -241,15 +272,30 @@ KernelLaunchConfig ChooseLaunchConfig(std::uint64_t desired_threads) {
 }
 
 void SetDeterministicLaunchConfig(const KernelLaunchConfig& config) {
-    g_deterministic_launch = config;
+    int device_id = 0;
+    if (cudaGetDevice(&device_id) != cudaSuccess) {
+        device_id = 0;
+    }
+    std::lock_guard<std::mutex> lock(g_deterministic_mutex);
+    g_deterministic_by_device[device_id] = config;
+    g_global_deterministic = config;
 }
 
 void ClearDeterministicLaunchConfig() {
-    g_deterministic_launch.reset();
+    int device_id = 0;
+    if (cudaGetDevice(&device_id) != cudaSuccess) {
+        device_id = 0;
+    }
+    std::lock_guard<std::mutex> lock(g_deterministic_mutex);
+    g_deterministic_by_device.erase(device_id);
+    if (g_deterministic_by_device.empty()) {
+        g_global_deterministic.reset();
+    }
 }
 
 bool HasDeterministicLaunchConfig() {
-    return g_deterministic_launch.has_value();
+    std::lock_guard<std::mutex> lock(g_deterministic_mutex);
+    return !g_deterministic_by_device.empty() || g_global_deterministic.has_value();
 }
 
 cudaError_t LaunchFusedKernel(dim3 grid,
