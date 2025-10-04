@@ -183,10 +183,9 @@ __device__ void DoPuzzle71Iteration(int pointsPerThread, int compression) {
 }
 
 // Launch bounds optimization from VanitySearch/BitCrack:
-// - 256 threads per block (optimal for modern GPUs)
-// - 8 blocks per SM minimum (maximizes occupancy)
-// This forces compiler to limit registers to ~64 per thread
-__global__ void __launch_bounds__(256, 8) Puzzle71FusedKernel(int pointsPerThread, int compression) {
+// Use only maxThreadsPerBlock constraint, let compiler optimize register usage
+// This balances occupancy with register pressure for complex kernels
+__global__ void __launch_bounds__(256) Puzzle71FusedKernel(int pointsPerThread, int compression) {
     DoPuzzle71Iteration(pointsPerThread, compression);
 }
 
