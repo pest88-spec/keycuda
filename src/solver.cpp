@@ -700,7 +700,8 @@ void Puzzle71Solver::Run() {
 
             if (options_.verbose) {
                 std::cout << "[gpu] Device " << shard.device_id << ": " << gpu_props.name
-                          << " (VRAM: " << total_vram_mb << " MB, SM: " << gpu_props.multiProcessorCount << ")" << std::endl;
+                          << " (VRAM: " << total_vram_mb << " MB, SM count: " << gpu_props.multiProcessorCount
+                          << ", compute capability: " << gpu_props.major << "." << gpu_props.minor << ")" << std::endl;
             }
 
             // Adaptive initial batch size based on GPU VRAM

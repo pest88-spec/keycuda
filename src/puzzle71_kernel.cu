@@ -227,10 +227,15 @@ KernelLaunchConfig ChooseLaunchConfig(std::uint64_t desired_threads) {
     int block_size = 0;
     cudaError_t occ_status = cudaOccupancyMaxPotentialBlockSize(&min_grid, &block_size, Puzzle71FusedKernel, 0, 0);
 
-    // Force smaller block size for better occupancy on high-SM GPUs (H20: 168 SM)
-    // Empirical best: 256 threads/block for secp256k1 batch operations
-    if (device_props.multiProcessorCount >= 100) {
-        // High-end GPUs (H20, A100, H100): prioritize more blocks over larger blocks
+    // Optimize block size based on GPU architecture
+    // Hopper (sm_90): 256-384 threads/block optimal
+    // Ampere/Ada (sm_80-89): 256-512 threads/block
+    // Turing (sm_75): 256-512 threads/block
+    if (device_props.major >= 9) {
+        // Hopper: H20, H100 - prefer 256-384 for better occupancy
+        block_size = 384;
+    } else if (device_props.major >= 8) {
+        // Ampere/Ada: A100, RTX 30xx/40xx
         block_size = 256;
     } else if (occ_status != cudaSuccess || block_size <= 0) {
         block_size = std::min(static_cast<int>(device_props.maxThreadsPerBlock), 1024);
@@ -243,10 +248,12 @@ KernelLaunchConfig ChooseLaunchConfig(std::uint64_t desired_threads) {
     unsigned int sm_count = device_props.multiProcessorCount;
     unsigned int max_blocks_per_sm = device_props.maxThreadsPerMultiProcessor / block_size;
 
-    // Target 4-8 blocks per SM for high occupancy
+    // Target high block count for maximum occupancy
+    // Hopper/Ampere: 8-16 blocks per SM
+    // Older arch: 4-8 blocks per SM
     unsigned int target_blocks_per_sm = std::min<unsigned int>(
         max_blocks_per_sm,
-        sm_count >= 100 ? 8 : 4  // More blocks for high-SM GPUs
+        device_props.major >= 8 ? 10 : 6  // More blocks for modern GPUs
     );
     unsigned int optimal_blocks = sm_count * target_blocks_per_sm;
 
