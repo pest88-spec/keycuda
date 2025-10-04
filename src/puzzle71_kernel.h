@@ -12,9 +12,13 @@ struct KernelLaunchConfig {
     dim3 grid;
     dim3 block;
     std::uint64_t batch_size;
+    int points_per_thread{1};
 };
 
 KernelLaunchConfig ChooseLaunchConfig(std::uint64_t desired_threads);
+void SetDeterministicLaunchConfig(const KernelLaunchConfig& config);
+void ClearDeterministicLaunchConfig();
+bool HasDeterministicLaunchConfig();
 
 cudaError_t SetResultBuffer(const puzzle71::gpu::DeviceResultBuffer& buffer);
 

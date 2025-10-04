@@ -17,6 +17,7 @@
 #include "KeyhuntCore/shards/shard_walker.h"
 #include "KeyhuntCore/gpu/batch_planner.h"
 #include "KeyhuntCore/gpu/gpu_executor.h"
+#include "puzzle71_kernel.h"
 #include "models/target_constants.h"
 #include "crypto/secp256k1_adapter.h"
 #include "AddressUtil/AddressUtil.h"
@@ -53,6 +54,16 @@ namespace puzzle71 {
 namespace {
 
 constexpr std::size_t kDigestWordCount = 5;
+
+std::uint32_t ParseDeviceIdFromShardId(const std::string& shard_id) {
+    if (shard_id.rfind("device-", 0) == 0) {
+        try {
+            return static_cast<std::uint32_t>(std::stoul(shard_id.substr(7)));
+        } catch (...) {
+        }
+    }
+    return 0;
+}
 
 std::string FormatKeyCount(std::uint64_t keys) {
     static const char* kUnits[] = {"", "K", "M", "G", "T", "P"};
@@ -187,13 +198,10 @@ std::uint32_t DetectCudaDeviceCount() {
     return static_cast<std::uint32_t>(device_count);
 }
 
-dim3 MakeDim3(const std::vector<std::uint32_t>& dims) {
-    unsigned int x = dims.size() > 0 ? dims[0] : 1;
-    unsigned int y = dims.size() > 1 ? dims[1] : 1;
-    unsigned int z = dims.size() > 2 ? dims[2] : 1;
-    if (x == 0) x = 1;
-    if (y == 0) y = 1;
-    if (z == 0) z = 1;
+dim3 MakeDim3(const std::array<std::uint32_t, 3>& dims) {
+    unsigned int x = dims[0] == 0 ? 1u : dims[0];
+    unsigned int y = dims[1] == 0 ? 1u : dims[1];
+    unsigned int z = dims[2] == 0 ? 1u : dims[2];
     return dim3(x, y, z);
 }
 
@@ -450,10 +458,18 @@ void Puzzle71Solver::Run() {
         }
     }
 
+    std::optional<checkpoint::Manifest> replay_manifest;
+    if (options_.replay_manifest_path) {
+        replay_manifest = checkpoint::LoadManifestFromFile(*options_.replay_manifest_path);
+        if (!replay_manifest) {
+            throw std::runtime_error("Unable to load replay manifest: " + *options_.replay_manifest_path);
+        }
+    }
+
     std::optional<checkpoint::Manifest> resume_manifest;
     bool resume_consumed = true;
     gpu::BatchConfig resume_config{};
-    if (options_.resume_manifest_path) {
+    if (!replay_manifest && options_.resume_manifest_path) {
         auto manifest = checkpoint::LoadManifestFromFile(*options_.resume_manifest_path);
         if (!manifest) {
             throw std::runtime_error("Unable to load resume manifest: " + *options_.resume_manifest_path);
@@ -501,8 +517,13 @@ void Puzzle71Solver::Run() {
         throw std::runtime_error(oss.str());
     }
 
-    const core::UInt256 keyspace_start = ParseKeyspaceHex(options_.keyspace_start_hex);
-    const core::UInt256 keyspace_end = ParseKeyspaceHex(options_.keyspace_end_hex);
+    core::UInt256 keyspace_start = ParseKeyspaceHex(options_.keyspace_start_hex);
+    core::UInt256 keyspace_end = ParseKeyspaceHex(options_.keyspace_end_hex);
+
+    if (replay_manifest) {
+        keyspace_start = ParseKeyspaceHex(replay_manifest->shard_start);
+        keyspace_end = ParseKeyspaceHex(replay_manifest->shard_end);
+    }
     if (keyspace_start.Compare(keyspace_end) >= 0) {
         throw std::runtime_error("Invalid keyspace: start must be < end");
     }
@@ -527,6 +548,18 @@ void Puzzle71Solver::Run() {
     } else {
         std::cout << "[info] CUDA devices available: " << available_devices << std::endl;
     }
+    if (replay_manifest) {
+        int manifest_device = static_cast<int>(ParseDeviceIdFromShardId(replay_manifest->shard_id));
+        if (manifest_device < 0 || manifest_device >= static_cast<int>(available_devices)) {
+            std::ostringstream oss;
+            oss << "Replay manifest references CUDA device " << manifest_device
+                << " but only " << available_devices << " device(s) detected";
+            throw std::runtime_error(oss.str());
+        }
+        device_ids.clear();
+        device_ids.push_back(manifest_device);
+    }
+
     if (device_ids.empty()) {
         device_ids.resize(available_devices);
         std::iota(device_ids.begin(), device_ids.end(), 0);
@@ -560,7 +593,46 @@ void Puzzle71Solver::Run() {
         deterministic_rng_ptr = &deterministic_rng;
     }
 
+    if (replay_manifest) {
+        std::uint64_t seed = options_.replay_config
+                                  ? options_.replay_config->deterministic_seed
+                                  : 0;
+        puzzle71::config::ReplayConfig manifest_cfg{};
+        manifest_cfg.grid_dim = {replay_manifest->grid_dim == 0 ? 1u : replay_manifest->grid_dim, 1u, 1u};
+        manifest_cfg.block_dim = {replay_manifest->block_dim == 0 ? 32u : replay_manifest->block_dim, 1u, 1u};
+        manifest_cfg.points_per_thread = replay_manifest->points_per_thread == 0
+                                             ? 1
+                                             : replay_manifest->points_per_thread;
+        manifest_cfg.deterministic_seed = seed;
+        if (!deterministic_launch_config) {
+            deterministic_rng.seed(seed);
+            deterministic_rng_ptr = &deterministic_rng;
+        }
+        deterministic_launch_config = BuildDeterministicBatchConfig(manifest_cfg);
+        if (replay_manifest->keys_total > 0 && deterministic_launch_config) {
+            deterministic_launch_config->keys_total = replay_manifest->keys_total;
+        }
+    }
+
+    if (deterministic_launch_config) {
+        puzzle71::kernel::KernelLaunchConfig kernel_cfg{};
+        kernel_cfg.grid = deterministic_launch_config->grid;
+        kernel_cfg.block = deterministic_launch_config->block;
+        kernel_cfg.batch_size = deterministic_launch_config->keys_total;
+        kernel_cfg.points_per_thread = deterministic_launch_config->points_per_thread;
+        puzzle71::kernel::SetDeterministicLaunchConfig(kernel_cfg);
+    } else {
+        puzzle71::kernel::ClearDeterministicLaunchConfig();
+    }
+
     DebugLog(options_, "[debug] Building schedule for " + std::to_string(device_ids.size()) + " device(s)...");
+    std::optional<scheduler::Shard> replay_shard;
+    if (replay_manifest) {
+        replay_shard = scheduler::Shard{ParseKeyspaceHex(replay_manifest->shard_start),
+                                        ParseKeyspaceHex(replay_manifest->shard_end),
+                                        ParseDeviceIdFromShardId(replay_manifest->shard_id)};
+    }
+
     auto schedule = scheduler::BuildDeterministicSchedule(keyspace_start,
                                                           keyspace_end,
                                                           static_cast<std::uint32_t>(device_ids.size()));
@@ -570,6 +642,11 @@ void Puzzle71Solver::Run() {
 
     for (std::size_t i = 0; i < schedule.size() && i < device_ids.size(); ++i) {
         schedule[i].device_id = static_cast<std::uint32_t>(device_ids[i]);
+    }
+
+    if (replay_shard) {
+        schedule.clear();
+        schedule.push_back(*replay_shard);
     }
     if (schedule.empty()) {
         throw std::runtime_error("Scheduler returned no shards");
@@ -605,6 +682,15 @@ void Puzzle71Solver::Run() {
             auto& walker = context.walker;
             auto& planner = context.planner;
             auto& executor = context.executor;
+
+            if (deterministic_launch_config) {
+                puzzle71::kernel::KernelLaunchConfig planner_cfg{};
+                planner_cfg.grid = deterministic_launch_config->grid;
+                planner_cfg.block = deterministic_launch_config->block;
+                planner_cfg.batch_size = deterministic_launch_config->keys_total;
+                planner_cfg.points_per_thread = deterministic_launch_config->points_per_thread;
+                planner.SetDeterministicLaunchConfig(planner_cfg);
+            }
 
             // Detect GPU memory for adaptive batch sizing
             // Supports all NVIDIA GPUs: RTX 2080 Ti (11GB) to H20/H100 (80-97GB)
@@ -857,34 +943,32 @@ void Puzzle71Solver::Run() {
                         keys_per_sec = static_cast<double>(processed) * 1'000'000.0 /
                                        static_cast<double>(step.elapsed_us);
                     }
-                    // GPU-adaptive batch tuning: Support all NVIDIA GPUs (8GB-97GB+)
-                    // Dynamically adjust target batch time and minimum keys based on VRAM
-                    double target_ms;
-                    std::uint64_t kMinKeys;
+                    if (!replay_manifest) {
+                        // GPU-adaptive batch tuning: Support all NVIDIA GPUs (8GB-97GB+)
+                        // Dynamically adjust target batch time and minimum keys based on VRAM
+                        double target_ms;
+                        std::uint64_t kMinKeys;
 
-                    if (total_vram_mb < 16000) {
-                        // Small VRAM GPUs (8-16GB): RTX 2080 Ti, RTX 3070/3080
-                        target_ms = 100.0;                    // Faster iterations for memory constraints
-                        kMinKeys = 10'000'000ULL;             // 10M minimum
-                    } else if (total_vram_mb < 32000) {
-                        // Medium VRAM GPUs (16-32GB): RTX 3090, RTX 4080
-                        target_ms = 150.0;                    // Balanced approach
-                        kMinKeys = 30'000'000ULL;             // 30M minimum
-                    } else if (total_vram_mb < 48000) {
-                        // Large VRAM GPUs (32-48GB): RTX 4090, RTX 6000 Ada
-                        target_ms = 200.0;                    // Larger batches for efficiency
-                        kMinKeys = 80'000'000ULL;             // 80M minimum
-                    } else {
-                        // Very Large VRAM GPUs (48GB+): A100, H100, H20
-                        target_ms = 300.0;                    // Maximum batch size for saturation
-                        kMinKeys = 150'000'000ULL;            // 150M minimum
-                    }
+                        if (total_vram_mb < 16000) {
+                            target_ms = 100.0;
+                            kMinKeys = 10'000'000ULL;
+                        } else if (total_vram_mb < 32000) {
+                            target_ms = 150.0;
+                            kMinKeys = 30'000'000ULL;
+                        } else if (total_vram_mb < 48000) {
+                            target_ms = 200.0;
+                            kMinKeys = 80'000'000ULL;
+                        } else {
+                            target_ms = 300.0;
+                            kMinKeys = 150'000'000ULL;
+                        }
 
-                    const double target_keys = keys_per_sec * (target_ms / 1000.0);
-                    constexpr std::uint64_t kMaxKeys = gpu::kMaxKeysPerBatch;
-                    if (target_keys > 0.0) {
-                        desired_keys_hint = static_cast<std::uint64_t>(target_keys);
-                        desired_keys_hint = std::clamp(desired_keys_hint, kMinKeys, kMaxKeys);
+                        const double target_keys = keys_per_sec * (target_ms / 1000.0);
+                        constexpr std::uint64_t kMaxKeys = gpu::kMaxKeysPerBatch;
+                        if (target_keys > 0.0) {
+                            desired_keys_hint = static_cast<std::uint64_t>(target_keys);
+                            desired_keys_hint = std::clamp(desired_keys_hint, kMinKeys, kMaxKeys);
+                        }
                     }
                 }
             }
@@ -919,18 +1003,14 @@ finalize_scan:
                                                      "puzzle71_last_run_status 1\n");
     }
 
-    if (options_.replay_manifest_path) {
-        auto manifest = checkpoint::LoadManifestFromFile(*options_.replay_manifest_path);
-        if (!manifest) {
-            std::cerr << "Unable to load replay manifest: " << *options_.replay_manifest_path << std::endl;
-        } else {
-            auto result = puzzle71::utils::VerifyManifestDigest(*options_.replay_manifest_path, manifest->path);
-            if (result.status != puzzle71::utils::DigestStatus::kOk) {
-                std::cerr << "Replay manifest verification incomplete: " << result.message << std::endl;
-            }
+    if (replay_manifest) {
+        auto result = puzzle71::utils::VerifyManifestDigest(*options_.replay_manifest_path, replay_manifest->path);
+        if (result.status != puzzle71::utils::DigestStatus::kOk) {
+            std::cerr << "Replay manifest verification incomplete: " << result.message << std::endl;
         }
     }
 
+    puzzle71::kernel::ClearDeterministicLaunchConfig();
 }
 
 void Puzzle71Solver::AppendLuckEntry(const std::string& scalar_hex, const std::string& address) {

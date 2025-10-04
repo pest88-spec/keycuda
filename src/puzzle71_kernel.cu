@@ -13,6 +13,7 @@ using puzzle71::gpu::DeviceResultBuffer;
 #include <atomic>
 #include <cstddef>
 #include <cstdio>
+#include <optional>
 
 #include "CudaKeySearchDevice/CudaDeviceKeys.cuh"
 #include "KeyFinderLib/KeySearchTypes.h"
@@ -57,6 +58,7 @@ cudaError_t UploadTargetHash160(const std::array<std::uint32_t, 5>& host_hash) {
 namespace {
 
 __device__ DeviceResultBuffer g_result_buffer;
+std::optional<puzzle71::kernel::KernelLaunchConfig> g_deterministic_launch;
 
 __device__ inline void FinalizeDigest(const std::uint32_t in[5], std::uint32_t out[5]) {
     const std::uint32_t iv[5] = {
@@ -187,6 +189,10 @@ std::atomic<bool> g_register_audit{false};
 namespace puzzle71::kernel {
 
 KernelLaunchConfig ChooseLaunchConfig(std::uint64_t desired_threads) {
+    if (g_deterministic_launch) {
+        return *g_deterministic_launch;
+    }
+
     KernelLaunchConfig config{};
 
     // Get GPU device properties for optimal configuration
@@ -228,9 +234,22 @@ KernelLaunchConfig ChooseLaunchConfig(std::uint64_t desired_threads) {
 
     config.block = dim3(static_cast<unsigned int>(block_size), 1, 1);
     config.grid = dim3(static_cast<unsigned int>(blocks), 1, 1);
-    config.batch_size = config.block.x * config.grid.x;
+    config.batch_size = static_cast<std::uint64_t>(config.block.x) * config.grid.x;
+    config.points_per_thread = 1;
 
     return config;
+}
+
+void SetDeterministicLaunchConfig(const KernelLaunchConfig& config) {
+    g_deterministic_launch = config;
+}
+
+void ClearDeterministicLaunchConfig() {
+    g_deterministic_launch.reset();
+}
+
+bool HasDeterministicLaunchConfig() {
+    return g_deterministic_launch.has_value();
 }
 
 cudaError_t LaunchFusedKernel(dim3 grid,

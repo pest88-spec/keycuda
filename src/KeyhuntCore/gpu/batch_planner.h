@@ -7,6 +7,7 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <optional>
 
 namespace puzzle71::gpu {
 
@@ -28,11 +29,14 @@ public:
     BatchConfig Plan(const shards::ShardWalker& walker,
                      std::uint64_t desired_keys_hint = 1'048'576) const;
 
+    void SetDeterministicLaunchConfig(const puzzle71::kernel::KernelLaunchConfig& config);
+
     static constexpr int kMaxPointsPerThread = 4096;
 
 private:
     int device_id_{0};
     cudaDeviceProp props_{};
+    std::optional<puzzle71::kernel::KernelLaunchConfig> deterministic_launch_;
 };
 
 std::uint64_t ComputeThreadCount(dim3 grid, dim3 block);

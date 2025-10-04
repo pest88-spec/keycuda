@@ -143,11 +143,39 @@ BatchPlanner::BatchPlanner(int device_id) : device_id_(device_id) {
     }
 }
 
+void BatchPlanner::SetDeterministicLaunchConfig(const puzzle71::kernel::KernelLaunchConfig& config) {
+    deterministic_launch_ = config;
+}
+
 BatchConfig BatchPlanner::Plan(const shards::ShardWalker& walker,
                                std::uint64_t desired_keys_hint) const {
     BatchConfig config{};
 
     if (walker.Done()) {
+        return config;
+    }
+
+    if (deterministic_launch_) {
+       
+        config.block = deterministic_launch_->block;
+        config.grid = deterministic_launch_->grid;
+        int points = deterministic_launch_->points_per_thread <= 0
+                         ? 1
+                         : std::min(deterministic_launch_->points_per_thread, kMaxPointsPerThread);
+        config.points_per_thread = points;
+
+        std::uint64_t threads = ComputeThreadCount(config.grid, config.block);
+        if (threads == 0) {
+            config.block = dim3(32, 1, 1);
+            config.grid = dim3(1, 1, 1);
+            threads = ComputeThreadCount(config.grid, config.block);
+        }
+
+        std::uint64_t batch_size = deterministic_launch_->batch_size;
+        if (batch_size == 0) {
+            batch_size = threads * static_cast<std::uint64_t>(config.points_per_thread);
+        }
+        config.keys_total = batch_size;
         return config;
     }
 
