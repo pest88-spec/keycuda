@@ -606,11 +606,24 @@ void Puzzle71Solver::Run() {
             auto& planner = context.planner;
             auto& executor = context.executor;
 
-            // Start with larger batch for high-memory GPUs (H20 97GB)
-            // Self-adaptive logic will adjust based on actual performance
+            // Detect GPU memory for adaptive batch sizing
+            // Supports all NVIDIA GPUs: RTX 2080 Ti (11GB) to H20/H100 (80-97GB)
+            cudaDeviceProp gpu_props{};
+            cudaGetDeviceProperties(&gpu_props, shard.device_id);
+            std::size_t total_vram_mb = gpu_props.totalGlobalMem / (1024 * 1024);
+
+            if (options_.verbose) {
+                std::cout << "[gpu] Device " << shard.device_id << ": " << gpu_props.name
+                          << " (VRAM: " << total_vram_mb << " MB, SM: " << gpu_props.multiProcessorCount << ")" << std::endl;
+            }
+
+            // Adaptive initial batch size based on GPU VRAM
             std::uint64_t desired_keys_hint = deterministic_launch_config
                                                    ? deterministic_launch_config->keys_total
-                                                   : 268'435'456ULL;  // 256M keys (up from 67M)
+                                                   : (total_vram_mb < 16000 ? 67'108'864ULL :   // <16GB: 64M keys
+                                                      total_vram_mb < 32000 ? 134'217'728ULL :  // 16-32GB: 128M keys
+                                                      total_vram_mb < 48000 ? 268'435'456ULL :  // 32-48GB: 256M keys
+                                                      536'870'912ULL);                          // 48GB+: 512M keys
 
             bool use_resume_config = false;
             if (resume_manifest && !resume_consumed) {
@@ -844,11 +857,30 @@ void Puzzle71Solver::Run() {
                         keys_per_sec = static_cast<double>(processed) * 1'000'000.0 /
                                        static_cast<double>(step.elapsed_us);
                     }
-                    // Optimize for H20 GPU (97GB VRAM): Use larger batches for better GPU utilization
-                    // Target 200-400ms per batch to keep GPU saturated (not 25ms which causes thrashing)
-                    const double target_ms = 300.0;  // Increased from 25ms to 300ms for H20 GPU
+                    // GPU-adaptive batch tuning: Support all NVIDIA GPUs (8GB-97GB+)
+                    // Dynamically adjust target batch time and minimum keys based on VRAM
+                    double target_ms;
+                    std::uint64_t kMinKeys;
+
+                    if (total_vram_mb < 16000) {
+                        // Small VRAM GPUs (8-16GB): RTX 2080 Ti, RTX 3070/3080
+                        target_ms = 100.0;                    // Faster iterations for memory constraints
+                        kMinKeys = 10'000'000ULL;             // 10M minimum
+                    } else if (total_vram_mb < 32000) {
+                        // Medium VRAM GPUs (16-32GB): RTX 3090, RTX 4080
+                        target_ms = 150.0;                    // Balanced approach
+                        kMinKeys = 30'000'000ULL;             // 30M minimum
+                    } else if (total_vram_mb < 48000) {
+                        // Large VRAM GPUs (32-48GB): RTX 4090, RTX 6000 Ada
+                        target_ms = 200.0;                    // Larger batches for efficiency
+                        kMinKeys = 80'000'000ULL;             // 80M minimum
+                    } else {
+                        // Very Large VRAM GPUs (48GB+): A100, H100, H20
+                        target_ms = 300.0;                    // Maximum batch size for saturation
+                        kMinKeys = 150'000'000ULL;            // 150M minimum
+                    }
+
                     const double target_keys = keys_per_sec * (target_ms / 1000.0);
-                    constexpr std::uint64_t kMinKeys = 100'000'000ULL;  // 100M minimum (up from 512) to ensure GPU saturation
                     constexpr std::uint64_t kMaxKeys = gpu::kMaxKeysPerBatch;
                     if (target_keys > 0.0) {
                         desired_keys_hint = static_cast<std::uint64_t>(target_keys);
