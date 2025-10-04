@@ -228,12 +228,13 @@ KernelLaunchConfig ChooseLaunchConfig(std::uint64_t desired_threads) {
     cudaError_t occ_status = cudaOccupancyMaxPotentialBlockSize(&min_grid, &block_size, Puzzle71FusedKernel, 0, 0);
 
     // Optimize block size based on GPU architecture
-    // Hopper (sm_90): 256-384 threads/block optimal
-    // Ampere/Ada (sm_80-89): 256-512 threads/block
+    // Target: maximize blocks/SM for high occupancy
+    // Hopper (sm_90): 192-256 threads/block for 8-10 blocks/SM
+    // Ampere/Ada (sm_80-89): 256-384 threads/block
     // Turing (sm_75): 256-512 threads/block
     if (device_props.major >= 9) {
-        // Hopper: H20, H100 - prefer 256-384 for better occupancy
-        block_size = 384;
+        // Hopper: H20, H100 - use 256 for 8 blocks/SM (2048/256=8)
+        block_size = 256;
     } else if (device_props.major >= 8) {
         // Ampere/Ada: A100, RTX 30xx/40xx
         block_size = 256;
