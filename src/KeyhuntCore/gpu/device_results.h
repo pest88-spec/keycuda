@@ -20,6 +20,7 @@ struct DeviceCandidate {
 struct DeviceResultBuffer {
     DeviceCandidate* candidates{nullptr};
     std::uint32_t* count{nullptr};
+    std::uint32_t* dropped{nullptr};
     std::uint32_t capacity{0};
 };
 

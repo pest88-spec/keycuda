@@ -23,6 +23,7 @@ struct StepResult {
     std::uint64_t elapsed_us{0};
     std::vector<bitcrack_adapter::KeySearchResult> candidates;
     double keys_per_sec{0.0};
+    std::uint32_t dropped_candidates{0};
 };
 
 class GpuExecutor {
@@ -54,12 +55,15 @@ private:
     DeviceBuffers host_scalars_;
     gpu::DeviceArray<puzzle71::gpu::DeviceCandidate> device_candidates_;
     gpu::DeviceArray<std::uint32_t> device_candidate_count_;
+    gpu::DeviceArray<std::uint32_t> device_candidate_overflow_;
     std::vector<puzzle71::gpu::DeviceCandidate> host_candidates_;
 
     CudaDeviceKeys device_keys_;
     bool verbose_{false};
     BatchConfig last_config_{};
     bool gpu_initialized_{false};
+    core::UInt256 expected_next_scalar_;
+    bool has_expected_next_{false};
 
     void InitializeDeviceKeys(const std::vector<secp256k1::uint256>& scalars,
                               int points_per_thread,

@@ -7,6 +7,8 @@
 namespace puzzle71::gpu {
 
 std::uint64_t ComputeThreadCount(dim3 grid, dim3 block) {
+    static_assert(BatchPlanner::kMaxPointsPerThread == 1024,
+                  "kMaxPointsPerThread mismatch: update planner kMaxPointsPerThread to match header");
     auto gx = static_cast<std::uint64_t>(grid.x == 0 ? 1 : grid.x);
     auto bx = static_cast<std::uint64_t>(block.x == 0 ? 1 : block.x);
     return gx * bx;
@@ -203,11 +205,10 @@ BatchConfig BatchPlanner::Plan(const shards::ShardWalker& walker,
         threads = 32;
     }
 
-    // Calculate points per thread with empirical limits for secp256k1 kernels
-    // Restore to value that achieved 900 Mkeys/s on H20 GPU
+    // Phase A optimization: Updated to match new kMaxPointsPerThread limit
+    // This unlocks higher batch sizes for H20/H100 GPUs
     constexpr int kMinPointsPerThread = 1;
-    constexpr int kMaxPointsPerThread = 64;
-    constexpr int kOptimalPointsPerThread = 64;
+    constexpr int kMaxPointsPerThread = 1024;  // Synced with batch_planner.h
 
     int points_per_thread = static_cast<int>((target_keys + threads - 1) / threads);
     if (points_per_thread <= 0) {

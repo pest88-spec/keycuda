@@ -31,9 +31,10 @@ public:
 
     void SetDeterministicLaunchConfig(const puzzle71::kernel::KernelLaunchConfig& config);
 
-    // Empirical limits for secp256k1 batch operations (VanitySearch/BitCrack proven)
-    // Restore to proven value that achieved 900 Mkeys/s on H20
-    static constexpr int kMaxPointsPerThread = 64;
+    // Phase A optimization: Remove artificial PPT limit to unlock higher batch sizes
+    // Previous limit (64) capped H20 performance at 440 Mkeys/s
+    // New limit (1024) enables 163M+ key batches for 2-3 Gkeys/s target
+    static constexpr int kMaxPointsPerThread = 1024;
 
 private:
     int device_id_{0};

@@ -317,7 +317,8 @@ std::string BuildTelemetryPayload(const telemetry::TelemetryOptions& options,
                                   std::uint64_t processed_keys,
                                   const core::UInt256& next_scalar,
                                   std::uint64_t elapsed_ms,
-                                  std::size_t candidate_count) {
+                                  std::size_t candidate_count,
+                                  std::uint32_t dropped_candidates) {
     nlohmann::json shard;
     shard["start"] = shard_start.ToHex();
     shard["end"] = shard_end.ToHex();
@@ -345,6 +346,7 @@ std::string BuildTelemetryPayload(const telemetry::TelemetryOptions& options,
                                 static_cast<double>(duration_ms);
     payload["keys_per_sec"] = keys_per_sec;
     payload["candidate_count"] = candidate_count;
+    payload["candidates_dropped"] = dropped_candidates;
     payload["status"] = "ok";
 
     return payload.dump();
@@ -668,6 +670,7 @@ void Puzzle71Solver::Run() {
         double total_elapsed_ms{0.0};
         std::uint64_t batches{0};
         double peak_keys_per_sec{0.0};
+        std::uint64_t dropped_candidates{0};
     } metrics;
 
     auto wall_start = std::chrono::steady_clock::now();
@@ -764,7 +767,8 @@ void Puzzle71Solver::Run() {
                 auto step = executor.Execute();
                 DebugLog(options_, "[debug] Execute result: processed=" + std::to_string(step.processed_keys) +
                                          " elapsed_us=" + std::to_string(step.elapsed_us) +
-                                         " candidates=" + std::to_string(step.candidates.size()));
+                                         " candidates=" + std::to_string(step.candidates.size()) +
+                                         " dropped=" + std::to_string(step.dropped_candidates));
                 const auto& gpu_results = step.candidates;
                 if (options_.parity_test_scalar_hex) {
                     std::cout << "[parity] GPU returned " << gpu_results.size() << " candidate(s)" << std::endl;
@@ -789,6 +793,7 @@ void Puzzle71Solver::Run() {
                     metrics.total_elapsed_ms += batch_ms;
                 }
                 ++metrics.batches;
+                metrics.dropped_candidates += step.dropped_candidates;
                 if (batch_rate > metrics.peak_keys_per_sec) {
                     metrics.peak_keys_per_sec = batch_rate;
                 }
@@ -798,6 +803,11 @@ void Puzzle71Solver::Run() {
                                              metrics.total_elapsed_ms
                                        : 0.0;
 
+                std::string dropped_note;
+                if (step.dropped_candidates > 0) {
+                    dropped_note = " | dropped=" + std::to_string(step.dropped_candidates);
+                }
+
                 std::cout << "[status] batch " << metrics.batches
                           << " | chunk=" << chunk_start.ToHex()
                           << " | size=" << FormatKeyCount(processed)
@@ -805,6 +815,7 @@ void Puzzle71Solver::Run() {
                           << " | rate=" << FormatKeyRate(batch_rate)
                           << " | total=" << FormatKeyCount(metrics.total_keys)
                           << " | avg=" << FormatKeyRate(avg_rate)
+                          << dropped_note
                           << std::endl;
 
                 for (const auto& candidate : gpu_results) {
@@ -887,7 +898,8 @@ void Puzzle71Solver::Run() {
                                                                processed,
                                                                next_scalar,
                                                                static_cast<std::uint64_t>(std::round(batch_ms)),
-                        gpu_results.size());
+                                                               gpu_results.size(),
+                                                               step.dropped_candidates);
                 puzzle71::telemetry::LogTelemetryLine(telemetry_opts, telemetry_payload);
 
                 if (options_.enable_checkpoint) {
@@ -1000,8 +1012,11 @@ finalize_scan:
               << " | batches=" << metrics.batches
               << " | wall=" << FormatDurationMs(wall_ms)
               << " | avg=" << FormatKeyRate(avg_rate_wall)
-              << " | peak=" << FormatKeyRate(metrics.peak_keys_per_sec)
-              << std::endl;
+              << " | peak=" << FormatKeyRate(metrics.peak_keys_per_sec);
+    if (metrics.dropped_candidates > 0) {
+        std::cout << " | dropped=" << FormatKeyCount(metrics.dropped_candidates);
+    }
+    std::cout << std::endl;
 
     if (options_.prometheus_dir) {
         puzzle71::telemetry::PrometheusOptions prom_opts{*options_.prometheus_dir};

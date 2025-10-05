@@ -77,16 +77,49 @@ __device__ inline void FinalizeDigest(const std::uint32_t in[5], std::uint32_t o
     }
 }
 
-__device__ inline void WriteCandidate(int idx,
-                                      bool compressed,
-                                      const unsigned int x[8],
-                                      const unsigned int y[8],
-                                      const std::uint32_t digest[5]) {
+__device__ inline void EmitCandidate(bool has_candidate,
+                                     int idx,
+                                     bool compressed,
+                                     const unsigned int x[8],
+                                     const unsigned int y[8],
+                                     const std::uint32_t digest[5]) {
     if (g_result_buffer.capacity == 0 || g_result_buffer.candidates == nullptr ||
         g_result_buffer.count == nullptr) {
         return;
     }
-    unsigned int slot = atomicAdd(g_result_buffer.count, 1u);
+    const unsigned full_mask = 0xffffffffu;
+    unsigned active = __ballot_sync(full_mask, has_candidate);
+    if (active == 0u) {
+        return;
+    }
+
+    const int lane = threadIdx.x & 31;
+    const int leader = __ffs(active) - 1;
+    const unsigned int matches = __popc(active);
+
+    std::uint32_t base_index = 0;
+    if (lane == leader) {
+        base_index = atomicAdd(g_result_buffer.count, matches);
+        if (g_result_buffer.dropped != nullptr) {
+            std::uint32_t overflow = 0;
+            if (base_index >= g_result_buffer.capacity) {
+                overflow = matches;
+            } else if (base_index + matches > g_result_buffer.capacity) {
+                overflow = (base_index + matches) - g_result_buffer.capacity;
+            }
+            if (overflow > 0) {
+                atomicAdd(g_result_buffer.dropped, overflow);
+            }
+        }
+    }
+
+    base_index = __shfl_sync(active, base_index, leader);
+    if (!has_candidate) {
+        return;
+    }
+
+    unsigned lane_offset = __popc(active & ((1u << lane) - 1));
+    std::uint32_t slot = base_index + lane_offset;
     if (slot >= g_result_buffer.capacity) {
         return;
     }
@@ -122,29 +155,25 @@ __device__ void DoPuzzle71Iteration(int pointsPerThread, int compression) {
         readInt(xPtr, i, x);
 
         if (check_uncompressed) {
-            unsigned int y[8];
+            unsigned int y[8]{};
+            std::uint32_t digest[5]{};
             readInt(yPtr, i, y);
-
-            std::uint32_t digest[5];
             puzzle71::compare::Hash160Uncompressed(x, y, digest);
-
-            if (puzzle71::compare::HashMatchesTarget(digest)) {
-                unsigned int y_full[8];
-                copyBigInt(y, y_full);
-                WriteCandidate(i, false, x, y_full, digest);
-            }
+            bool match = puzzle71::compare::HashMatchesTarget(digest);
+            EmitCandidate(match, i, false, x, y, digest);
         }
 
         if (check_compressed) {
-            std::uint32_t digest[5];
+            std::uint32_t digest[5]{};
             unsigned int y_parity = readIntLSW(yPtr, i);
             puzzle71::compare::Hash160Compressed(x, y_parity, digest);
 
-            if (puzzle71::compare::HashMatchesTarget(digest)) {
-                unsigned int y[8];
-                readInt(yPtr, i, y);
-                WriteCandidate(i, true, x, y, digest);
+            unsigned int y_full[8]{};
+            bool match = puzzle71::compare::HashMatchesTarget(digest);
+            if (match) {
+                readInt(yPtr, i, y_full);
             }
+            EmitCandidate(match, i, true, x, y_full, digest);
         }
 
         beginBatchAddWithDouble(_INC_X, _INC_Y, xPtr, chain, i, i, inverse);
@@ -182,10 +211,11 @@ __device__ void DoPuzzle71Iteration(int pointsPerThread, int compression) {
     }
 }
 
-// Launch bounds optimization from VanitySearch/BitCrack:
-// Use only maxThreadsPerBlock constraint, let compiler optimize register usage
-// This balances occupancy with register pressure for complex kernels
-__global__ void __launch_bounds__(256) Puzzle71FusedKernel(int pointsPerThread, int compression) {
+// Phase A optimization: Add launch_bounds to reduce register pressure
+// Previous: 127 regs/thread limited occupancy on Hopper
+// Target: <100 regs/thread for better occupancy
+// Second parameter (6) = minimum blocks per SM, forces compiler to use fewer registers
+__global__ void __launch_bounds__(256, 6) Puzzle71FusedKernel(int pointsPerThread, int compression) {
     DoPuzzle71Iteration(pointsPerThread, compression);
 }
 
@@ -252,12 +282,14 @@ KernelLaunchConfig ChooseLaunchConfig(std::uint64_t desired_threads) {
     unsigned int sm_count = device_props.multiProcessorCount;
     unsigned int max_blocks_per_sm = device_props.maxThreadsPerMultiProcessor / block_size;
 
+    // Phase A optimization: Aggressive grid sizing for Hopper/Ampere
     // Target high block count for maximum occupancy
-    // Hopper/Ampere: 8-16 blocks per SM
-    // Older arch: 4-8 blocks per SM
+    // Hopper (sm_90): 16 blocks/SM = 1248 blocks on H20 (78 SMs)
+    // Ampere/Ada (sm_80-89): 12 blocks/SM
+    // Older arch (sm_75): 8 blocks/SM
     unsigned int target_blocks_per_sm = std::min<unsigned int>(
         max_blocks_per_sm,
-        device_props.major >= 8 ? 10 : 6  // More blocks for modern GPUs
+        device_props.major >= 9 ? 16 : (device_props.major >= 8 ? 12 : 8)
     );
     unsigned int optimal_blocks = sm_count * target_blocks_per_sm;
 

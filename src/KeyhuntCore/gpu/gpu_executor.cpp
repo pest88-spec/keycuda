@@ -14,41 +14,11 @@
 #include <stdexcept>
 #include <string>
 #include <vector>
-#include <type_traits>
 #include <utility>
 
 namespace puzzle71::gpu {
 
 namespace {
-
-template <typename T, typename = void>
-struct SupportsUpdatePrivateKeys : std::false_type {};
-
-template <typename T>
-struct SupportsUpdatePrivateKeys<
-    T,
-    std::void_t<decltype(std::declval<T&>().updatePrivateKeys(
-        std::declval<const std::vector<secp256k1::uint256>&>()))>> : std::true_type {};
-
-// SFINAE helper: call updatePrivateKeys when supported
-template <typename DeviceKeys>
-cudaError_t TryRefreshPrivateKeys(
-    DeviceKeys& device_keys,
-    const std::vector<secp256k1::uint256>& scalars,
-    std::true_type) {
-    return device_keys.updatePrivateKeys(scalars);
-}
-
-// SFINAE helper: return error when not supported
-template <typename DeviceKeys>
-cudaError_t TryRefreshPrivateKeys(
-    DeviceKeys& device_keys,
-    const std::vector<secp256k1::uint256>& scalars,
-    std::false_type) {
-    (void)device_keys;
-    (void)scalars;
-    return cudaErrorNotSupported;
-}
 
 std::vector<secp256k1::uint256> ToBitCrackScalars(const std::vector<core::UInt256>& scalars) {
     std::vector<secp256k1::uint256> out;
@@ -149,6 +119,7 @@ void GpuExecutor::SmartCleanup() {
     try {
         device_candidates_.Release();
         device_candidate_count_.Release();
+        device_candidate_overflow_.Release();
         host_candidates_.clear();
         host_candidates_.shrink_to_fit();
         cudaError_t status = cudaDeviceSynchronize();
@@ -207,14 +178,22 @@ void GpuExecutor::PrepareResultBuffers(std::size_t capacity) {
 
     device_candidates_.Allocate(capacity);
     device_candidate_count_.Allocate(1);
+    device_candidate_overflow_.Allocate(1);
     CheckCuda(cudaMemset(device_candidate_count_.data(), 0, sizeof(std::uint32_t)),
               "cudaMemset(result_count)");
+    if (device_candidate_overflow_.data()) {
+        CheckCuda(cudaMemset(device_candidate_overflow_.data(), 0, sizeof(std::uint32_t)),
+                  "cudaMemset(result_overflow)");
+    }
+    CheckCuda(cudaMemset(device_candidate_overflow_.data(), 0, sizeof(std::uint32_t)),
+              "cudaMemset(result_overflow)");
 
     host_candidates_.resize(capacity);
 
     DeviceResultBuffer buffer{};
     buffer.candidates = device_candidates_.data();
     buffer.count = device_candidate_count_.data();
+    buffer.dropped = device_candidate_overflow_.data();
     buffer.capacity = static_cast<std::uint32_t>(capacity);
 
     CheckCuda(puzzle71::kernel::SetResultBuffer(buffer), "SetResultBuffer");
@@ -257,6 +236,16 @@ void GpuExecutor::PrepareBatch(const BatchConfig& config,
                           config_.block.x != last_config_.block.x ||
                           config_.points_per_thread != last_config_.points_per_thread;
 
+    bool contiguous_scan = gpu_initialized_ && !config_changed && has_expected_next_ &&
+                           start_scalar.Compare(expected_next_scalar_) == 0;
+    bool need_reseed = !contiguous_scan;
+
+    std::vector<secp256k1::uint256> scalars;
+    bool scalars_ready = false;
+    if (need_reseed) {
+        has_expected_next_ = false;
+    }
+
     while (true) {
         size_t free_mem = 0;
         size_t total_mem = 0;
@@ -285,68 +274,41 @@ void GpuExecutor::PrepareBatch(const BatchConfig& config,
         std::uint64_t threads = ComputeThreadCount(config_.grid, config_.block);
         config_.keys_total = threads * static_cast<std::uint64_t>(config_.points_per_thread);
 
-        host_scalars_.Configure(config_.grid, config_.block, config_.points_per_thread);
-        DeviceBatch batch = host_scalars_.PrepareBatch(batch_start_, config_.keys_total);
+        if (need_reseed && !scalars_ready) {
+            host_scalars_.Configure(config_.grid, config_.block, config_.points_per_thread);
+            DeviceBatch batch = host_scalars_.PrepareBatch(batch_start_, config_.keys_total);
+            scalars = ToBitCrackScalars(batch.scalars);
+            scalars_ready = true;
+        }
 
-        auto scalars = ToBitCrackScalars(batch.scalars);
-
-        std::uint64_t total_points = static_cast<std::uint64_t>(config_.grid.x) *
-                                     static_cast<std::uint64_t>(config_.block.x) *
-                                     static_cast<std::uint64_t>(config_.points_per_thread);
-        if (scalars.size() != total_points) {
-            std::ostringstream oss;
-            oss << "Scalar count mismatch: expected " << total_points
-                << " got " << scalars.size();
-            throw std::runtime_error(oss.str());
+        if (need_reseed) {
+            std::uint64_t total_points = static_cast<std::uint64_t>(config_.grid.x) *
+                                         static_cast<std::uint64_t>(config_.block.x) *
+                                         static_cast<std::uint64_t>(config_.points_per_thread);
+            if (scalars.size() != total_points) {
+                std::ostringstream oss;
+                oss << "Scalar count mismatch: expected " << total_points
+                    << " got " << scalars.size();
+                throw std::runtime_error(oss.str());
+            }
         }
 
         auto initialize_with_current_config = [&]() {
             InitializeDeviceKeys(scalars, config_.points_per_thread, config_.grid, config_.block);
-            PrepareResultBuffers(batch.scalars.size());
+            PrepareResultBuffers(config_.keys_total);
             last_config_ = config_;
             gpu_initialized_ = true;
         };
 
-        auto refresh_existing_config = [&]() -> bool {
-            CheckCuda(cudaSetDevice(device_id_), "cudaSetDevice");
-
-            // Use SFINAE overload to avoid compilation errors
-            auto status = TryRefreshPrivateKeys(
-                device_keys_,
-                scalars,
-                typename SupportsUpdatePrivateKeys<CudaDeviceKeys>::type{}
-            );
-
-            if (status != cudaSuccess) {
-                if (verbose_ && status != cudaErrorNotSupported) {
-                    std::cerr << "[warn] updatePrivateKeys failed (" << cudaGetErrorString(status)
-                              << "), falling back to reinitialization" << std::endl;
-                }
-                return false;
-            }
-
-            for (int i = 1; i <= 256; ++i) {
-                CheckCuda(device_keys_.doStep(), "device_keys_.doStep");
-            }
-            PrepareResultBuffers(batch.scalars.size());
-            last_config_ = config_;
-            return true;
-        };
-
         try {
-            if (config_changed) {
+            if (need_reseed) {
                 cleanupChainBuf();
                 device_keys_.clearPublicKeys();
                 device_keys_.clearPrivateKeys();
                 initialize_with_current_config();
             } else {
-            if (!refresh_existing_config()) {
-                cleanupChainBuf();
-                device_keys_.clearPublicKeys();
-                device_keys_.clearPrivateKeys();
-                config_changed = true;
-                initialize_with_current_config();
-            }
+                PrepareResultBuffers(config_.keys_total);
+                last_config_ = config_;
             }
             break;
         } catch (const std::runtime_error& ex) {
@@ -359,7 +321,7 @@ void GpuExecutor::PrepareBatch(const BatchConfig& config,
                           << " points/thread=" << config_.points_per_thread << std::endl;
             }
             ClampBatchConfig(config_, kMaxKeysPerBatch);
-            config_changed = true;
+            scalars_ready = false;
             continue;
         }
     }
@@ -417,6 +379,15 @@ StepResult GpuExecutor::Execute() {
     candidate_count = std::min<std::uint32_t>(candidate_count,
                                               static_cast<std::uint32_t>(host_candidates_.size()));
 
+    std::uint32_t overflow_count = 0;
+    if (device_candidate_overflow_.data()) {
+        CheckCuda(cudaMemcpy(&overflow_count,
+                             device_candidate_overflow_.data(),
+                             sizeof(overflow_count),
+                             cudaMemcpyDeviceToHost),
+                  "cudaMemcpy(result_overflow)");
+    }
+
     if (candidate_count > 0) {
         CheckCuda(cudaMemcpy(host_candidates_.data(),
                              device_candidates_.data(),
@@ -453,6 +424,9 @@ StepResult GpuExecutor::Execute() {
     std::uint64_t processed_keys = config_.keys_total;
     result.processed_keys = processed_keys;
     result.next_scalar = core::Incremented(batch_start_, processed_keys);
+    expected_next_scalar_ = result.next_scalar;
+    has_expected_next_ = true;
+    result.dropped_candidates = overflow_count;
     if (result.elapsed_us > 0) {
         result.keys_per_sec = static_cast<double>(result.processed_keys) * 1'000'000.0 /
                               static_cast<double>(result.elapsed_us);
