@@ -26,18 +26,24 @@
 #include <algorithm>
 #include <chrono>
 #include <cmath>
-#include <numeric>
-#include <random>
-#include <unordered_set>
+#include <condition_variable>
 #include <cstdint>
 #include <ctime>
 #include <filesystem>
 #include <fstream>
 #include <iomanip>
 #include <iostream>
+#include <memory>
+#include <mutex>
+#include <numeric>
+#include <queue>
+#include <random>
 #include <sstream>
 #include <stdexcept>
 #include <string>
+#include <thread>
+#include <utility>
+#include <unordered_set>
 #include <vector>
 
 #include <openssl/bio.h>
@@ -302,6 +308,135 @@ std::string ComputeFileSha256Hex(const std::filesystem::path& path) {
     return oss.str();
 }
 
+struct CheckpointJob {
+    std::filesystem::path payload_path;
+    std::filesystem::path manifest_path;
+    checkpoint::Manifest manifest;
+    utils::CheckpointCryptoConfig crypto_config;
+    std::vector<unsigned char> nonce_override;
+    std::string payload_json;
+};
+
+class AsyncCheckpointWriter {
+public:
+    AsyncCheckpointWriter() = default;
+    ~AsyncCheckpointWriter() { Shutdown(); }
+
+    void Enqueue(CheckpointJob job) {
+        {
+            std::unique_lock<std::mutex> lock(mutex_);
+            EnsureWorkerStartedLocked();
+            queue_.push(std::move(job));
+        }
+        cv_.notify_one();
+    }
+
+    void Flush() {
+        std::unique_lock<std::mutex> lock(mutex_);
+        if (!worker_started_) {
+            return;
+        }
+        cv_idle_.wait(lock, [this]() {
+            return queue_.empty() && !processing_;
+        });
+    }
+
+    void Shutdown() {
+        Flush();
+        {
+            std::unique_lock<std::mutex> lock(mutex_);
+            if (!worker_started_) {
+                return;
+            }
+            stop_ = true;
+            cv_.notify_all();
+        }
+        if (worker_.joinable()) {
+            worker_.join();
+        }
+        {
+            std::lock_guard<std::mutex> lock(mutex_);
+            worker_started_ = false;
+            stop_ = false;
+        }
+    }
+
+private:
+    void EnsureWorkerStartedLocked() {
+        if (!worker_started_) {
+            stop_ = false;
+            worker_ = std::thread([this]() { WorkerLoop(); });
+            worker_started_ = true;
+        }
+    }
+
+    void WorkerLoop() {
+        while (true) {
+            CheckpointJob job;
+            {
+                std::unique_lock<std::mutex> lock(mutex_);
+                cv_.wait(lock, [this]() {
+                    return stop_ || !queue_.empty();
+                });
+                if (stop_ && queue_.empty()) {
+                    break;
+                }
+                job = std::move(queue_.front());
+                queue_.pop();
+                processing_ = true;
+            }
+
+            ProcessJob(std::move(job));
+
+            {
+                std::lock_guard<std::mutex> lock(mutex_);
+                processing_ = false;
+            }
+            cv_idle_.notify_all();
+        }
+        cv_idle_.notify_all();
+    }
+
+    void ProcessJob(CheckpointJob job) {
+        try {
+            auto cipher = utils::EncryptCheckpoint(job.crypto_config,
+                                                   job.payload_json,
+                                                   &job.nonce_override);
+
+            std::ofstream payload_file(job.payload_path, std::ios::binary);
+            if (!payload_file) {
+                throw std::runtime_error("Unable to open checkpoint payload file for write: " +
+                                         job.payload_path.string());
+            }
+            payload_file.write(reinterpret_cast<const char*>(cipher.nonce.data()), cipher.nonce.size());
+            payload_file.write(reinterpret_cast<const char*>(cipher.tag.data()), cipher.tag.size());
+            payload_file.write(reinterpret_cast<const char*>(cipher.ciphertext.data()), cipher.ciphertext.size());
+            payload_file.close();
+
+            job.manifest.nonce = Base64Encode(cipher.nonce.data(), cipher.nonce.size());
+            job.manifest.salt = Base64Encode(job.crypto_config.salt.data(), job.crypto_config.salt.size());
+            job.manifest.payload_sha256 = ComputeFileSha256Hex(job.payload_path);
+            job.manifest.pbkdf2_iterations = job.crypto_config.pbkdf2_iterations;
+
+            if (!checkpoint::WriteManifestToFile(job.manifest, job.manifest_path)) {
+                std::cerr << "Failed to write checkpoint manifest: "
+                          << job.manifest_path << std::endl;
+            }
+        } catch (const std::exception& ex) {
+            std::cerr << "Checkpoint generation error: " << ex.what() << std::endl;
+        }
+    }
+
+    std::mutex mutex_;
+    std::condition_variable cv_;
+    std::condition_variable cv_idle_;
+    std::queue<CheckpointJob> queue_;
+    std::thread worker_;
+    bool worker_started_{false};
+    bool stop_{false};
+    bool processing_{false};
+};
+
 core::UInt256 ParseKeyspaceHex(std::string_view hex) {
     auto parsed = core::UInt256::FromHex(hex);
     if (!parsed) {
@@ -478,6 +613,11 @@ void Puzzle71Solver::Run() {
         }
         resume_consumed = false;
         resume_manifest = std::move(manifest);
+    }
+
+    std::unique_ptr<AsyncCheckpointWriter> checkpoint_writer;
+    if (options_.enable_checkpoint) {
+        checkpoint_writer = std::make_unique<AsyncCheckpointWriter>();
     }
 
     if (options_.parity_test_scalar_hex) {
@@ -902,57 +1042,53 @@ void Puzzle71Solver::Run() {
                                                                step.dropped_candidates);
                 puzzle71::telemetry::LogTelemetryLine(telemetry_opts, telemetry_payload);
 
-                if (options_.enable_checkpoint) {
-                try {
-                    auto checkpoint_dir = std::filesystem::path("checkpoints");
-                    std::filesystem::create_directories(checkpoint_dir);
-                    auto timestamp = IsoTimestamp();
-                    std::filesystem::path payload_path = checkpoint_dir /
-                        ("payload-" + chunk_start.ToHex() + "-" + timestamp + ".chk");
-                    std::filesystem::path manifest_path = checkpoint_dir /
-                        ("manifest-" + chunk_start.ToHex() + "-" + timestamp + ".json");
+                if (options_.enable_checkpoint && checkpoint_writer) {
+                    try {
+                        auto checkpoint_dir = std::filesystem::path("checkpoints");
+                        std::filesystem::create_directories(checkpoint_dir);
+                        auto timestamp = IsoTimestamp();
+                        std::filesystem::path payload_path = checkpoint_dir /
+                            ("payload-" + chunk_start.ToHex() + "-" + timestamp + ".chk");
+                        std::filesystem::path manifest_path = checkpoint_dir /
+                            ("manifest-" + chunk_start.ToHex() + "-" + timestamp + ".json");
 
-                    auto salt = GenerateRandomBytes(16, deterministic_rng_ptr);
-                    utils::CheckpointCryptoConfig crypto_config{
-                        options_.operator_id.empty() ? std::string("default-passphrase") : options_.operator_id,
-                        std::move(salt),
-                        200000};
+                        auto salt = GenerateRandomBytes(16, deterministic_rng_ptr);
+                        utils::CheckpointCryptoConfig crypto_config{
+                            options_.operator_id.empty() ? std::string("default-passphrase") : options_.operator_id,
+                            std::move(salt),
+                            200000};
 
-                    std::ostringstream payload_stream;
-                    payload_stream << "{\"start\":\"" << chunk_start.ToHex()
-                                   << "\",\"end\":\"" << chunk_end.ToHex()
-                                   << "\",\"timestamp\":\"" << timestamp
-                                   << "\",\"operator_id\":\"" << options_.operator_id
-                                   << "\",\"operator_purpose\":\"" << options_.operator_purpose << "\"}";
+                        std::ostringstream payload_stream;
+                        payload_stream << "{\"start\":\"" << chunk_start.ToHex()
+                                       << "\",\"end\":\"" << chunk_end.ToHex()
+                                       << "\",\"timestamp\":\"" << timestamp
+                                       << "\",\"operator_id\":\"" << options_.operator_id
+                                       << "\",\"operator_purpose\":\"" << options_.operator_purpose << "\"}";
+                        std::string payload_json = payload_stream.str();
 
-                    auto nonce_bytes = GenerateRandomBytes(12, deterministic_rng_ptr);
-                    auto cipher = utils::EncryptCheckpoint(crypto_config,
-                                                           payload_stream.str(),
-                                                           &nonce_bytes);
-                    {
-                        std::ofstream payload_file(payload_path, std::ios::binary);
-                        payload_file.write(reinterpret_cast<const char*>(cipher.nonce.data()), cipher.nonce.size());
-                        payload_file.write(reinterpret_cast<const char*>(cipher.tag.data()), cipher.tag.size());
-                        payload_file.write(reinterpret_cast<const char*>(cipher.ciphertext.data()), cipher.ciphertext.size());
+                        auto nonce_bytes = GenerateRandomBytes(12, deterministic_rng_ptr);
+
+                        auto manifest = BuildManifest(partition.device_id,
+                                                      chunk_start,
+                                                      chunk_end,
+                                                      payload_path,
+                                                      batch_cfg,
+                                                      next_scalar);
+                        manifest.pbkdf2_iterations = crypto_config.pbkdf2_iterations;
+                        manifest.retention_expiry = IsoTimestampPlusDays(30);
+
+                        CheckpointJob job{};
+                        job.payload_path = std::move(payload_path);
+                        job.manifest_path = std::move(manifest_path);
+                        job.manifest = std::move(manifest);
+                        job.crypto_config = std::move(crypto_config);
+                        job.nonce_override = std::move(nonce_bytes);
+                        job.payload_json = std::move(payload_json);
+
+                        checkpoint_writer->Enqueue(std::move(job));
+                    } catch (const std::exception& ex) {
+                        std::cerr << "Checkpoint generation error: " << ex.what() << std::endl;
                     }
-
-                    auto manifest = BuildManifest(partition.device_id,
-                                                  chunk_start,
-                                                  chunk_end,
-                                                  payload_path,
-                                                  batch_cfg,
-                                                  next_scalar);
-                    manifest.pbkdf2_iterations = crypto_config.pbkdf2_iterations;
-                    manifest.payload_sha256 = ComputeFileSha256Hex(payload_path);
-                    manifest.nonce = Base64Encode(cipher.nonce.data(), cipher.nonce.size());
-                    manifest.salt = Base64Encode(crypto_config.salt.data(), crypto_config.salt.size());
-                    manifest.retention_expiry = IsoTimestampPlusDays(30);
-                    if (!checkpoint::WriteManifestToFile(manifest, manifest_path)) {
-                        std::cerr << "Failed to write checkpoint manifest: " << manifest_path << std::endl;
-                    }
-                } catch (const std::exception& ex) {
-                    std::cerr << "Checkpoint generation error: " << ex.what() << std::endl;
-                }
                 }
                 walker.Advance(processed);
 
@@ -995,6 +1131,9 @@ void Puzzle71Solver::Run() {
     }
 
 finalize_scan:
+    if (checkpoint_writer) {
+        checkpoint_writer->Shutdown();
+    }
     if (target_found) {
         std::cout << "[success] Target found! Stopping scan." << std::endl;
         return;
