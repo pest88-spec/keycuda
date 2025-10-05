@@ -211,11 +211,12 @@ __device__ void DoPuzzle71Iteration(int pointsPerThread, int compression) {
     }
 }
 
-// Phase A optimization: Add launch_bounds to reduce register pressure
-// Previous: 127 regs/thread limited occupancy on Hopper
-// Target: <100 regs/thread for better occupancy
-// Second parameter (6) = minimum blocks per SM, forces compiler to use fewer registers
-__global__ void __launch_bounds__(256, 6) Puzzle71FusedKernel(int pointsPerThread, int compression) {
+// Phase A optimization: Add launch_bounds to optimize block size
+// Fixed: Removed minBlocksPerSM parameter (was causing nvlink regcount errors)
+// Previous issue: __launch_bounds__(256, 6) limited max regcount to 40
+// but SHA256/RIPEMD160 functions need 51-99 registers
+// Solution: Let compiler auto-optimize register allocation within 256 threads/block
+__global__ void __launch_bounds__(256) Puzzle71FusedKernel(int pointsPerThread, int compression) {
     DoPuzzle71Iteration(pointsPerThread, compression);
 }
 
