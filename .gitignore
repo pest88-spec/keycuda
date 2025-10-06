@@ -26,6 +26,12 @@ build/
 *.so
 *.dylib
 
+# Executables
+Puzzle71Solver
+puzzle71_tests
+*.exe
+*.out
+
 # IDE files
 .vscode/
 .idea/
