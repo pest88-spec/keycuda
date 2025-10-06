@@ -2,11 +2,12 @@
 
 高性能GPU加速的比特币私钥搜索引擎，专为Puzzle #71设计。使用C++17 + CUDA构建，集成bitcoin-core/secp256k1验证，支持确定性重放、checkpoint续传和完整审计链路。
 
-**最新更新（2025-10-03）**：
-- ✅ 修复找到目标后继续扫描的严重bug
-- ✅ 修复私钥格式化确保完整256位输出
-- ✅ 添加独立CPU验证链路（test_known_private_key_chain.cpp）
-- ✅ 实测Puzzle 40验证通过
+**最新更新（2025-10-06 - v0.2.0）**：
+- ✅ **架构重构**：BitCrack代码已提取到项目内部（`src/extracted/bitcrack/`）
+- ✅ **简化克隆**：无需`git submodule update`，直接`git clone`即可
+- ✅ **完整溯源**：40个提取文件均含@origin属性头（来源、commit、许可证）
+- ✅ **许可合规**：MIT许可证和溯源文档完整（`docs/licenses/`、`docs/reference-sources.md`）
+- ✅ **编译验证**：性能保持840 Mkeys/s基线，所有测试通过
 
 ---
 
@@ -44,16 +45,21 @@
 | **OpenSSL** | ≥ 1.1.1 | 用于SHA256/RIPEMD160 |
 | **Git** | ≥ 2.25 | 子模块管理 |
 
-### 第三方库（自动获取）
+### 第三方库
 
-项目使用Git子模块管理以下依赖：
+项目采用**代码提取架构**，已将BitCrack核心代码提取到项目内部，无需Git子模块克隆：
 
-| 库 | 用途 | 仓库 |
-|-----|------|------|
-| **bitcoin-core/secp256k1** | ECC运算和CPU验证 | https://github.com/bitcoin-core/secp256k1 |
-| **BitCrack** | GPU kernel和地址工具 | https://github.com/pest88-spec/BitCrack |
+| 库 | 用途 | 集成方式 |
+|-----|------|---------|
+| **BitCrack** (提取) | GPU kernel和地址工具 | 已提取到`src/extracted/bitcrack/` |
+| **bitcoin-core/secp256k1** | ECC运算和CPU验证 | Git子模块（仅此一个） |
 | **GoogleTest** | 单元测试框架 | CMake FetchContent自动获取 |
 | **nlohmann/json** | JSON处理 | CMake FetchContent自动获取 |
+
+**架构优势**（v0.2.0+）：
+- ✅ **简化克隆**：仅需`git clone`，无需`git submodule update --init --recursive`
+- ✅ **完整溯源**：所有提取代码含@origin属性头（详见`docs/reference-sources.md`）
+- ✅ **许可合规**：BitCrack MIT许可证保存在`docs/licenses/`
 
 ---
 
@@ -116,38 +122,41 @@ sudo apt-get install -y \
 nvidia-smi
 ```
 
-### 2. 克隆项目和子模块
+### 2. 克隆项目
+
+**重要变更（v0.2.0+）**：项目已将BitCrack代码提取到仓库内部，克隆更简单！
 
 ```bash
-# 克隆主仓库
+# 克隆主仓库（BitCrack代码已内置，无需submodule）
 git clone https://github.com/pest88-spec/keycuda.git
 cd keycuda
 
 # 切换到开发分支
 git checkout 001-implement-puzzle71solver-mred
 
-# 初始化所有Git子模块（重要！）
+# 仅初始化bitcoin-core/secp256k1子模块（用于CPU验证）
 git submodule update --init --recursive
 
 # 验证子模块已正确克隆
 ls -la third_party/bitcoin-core-secp256k1/
-ls -la third_party/BitCrack/
 
-# 如果子模块为空，手动克隆
-# git submodule update --init --recursive --force
+# 验证BitCrack代码已提取（应看到40个文件）
+ls -la src/extracted/bitcrack/cudaMath/
+# 应输出: ptx.cuh ripemd160.cuh secp256k1.cuh sha256.cuh
 ```
 
-**重要**：子模块说明
-- `third_party/bitcoin-core-secp256k1/`: Bitcoin官方secp256k1库，用于CPU验证
-- `third_party/BitCrack/`: GPU kernel和地址工具库
-- 如果`git submodule`失败，可手动克隆：
-  ```bash
-  # bitcoin-core/secp256k1
-  git clone https://github.com/bitcoin-core/secp256k1.git third_party/bitcoin-core-secp256k1
+**架构说明**：
+- ✅ **BitCrack代码**：已提取到`src/extracted/bitcrack/`（40个源文件，含完整@origin溯源）
+- ✅ **bitcoin-core/secp256k1**：仍为Git子模块（用于CPU验证）
+- ✅ **许可证合规**：`docs/licenses/BitCrack-LICENSE.MIT`
+- ✅ **溯源文档**：`docs/reference-sources.md`
 
-  # BitCrack (使用fork版本)
-  git clone https://github.com/pest88-spec/BitCrack.git third_party/BitCrack
-  ```
+**回退到旧版本（如需要BitCrack子模块）**：
+```bash
+# 回退到v0.1.0（方案A执行前）
+git checkout v0.2.0-pre-extraction-backup
+git submodule update --init --recursive  # 会克隆BitCrack子模块
+```
 
 ### 3. 编译构建
 
@@ -421,18 +430,18 @@ desired_keys_hint = 268'435'456ULL;  // 256M keys/batch
 
 ## 故障排查
 
-### 问题1：子模块为空
+### 问题1：bitcoin-core/secp256k1子模块为空
 
 **现象**：
 ```
 CMake Error: The source directory .../third_party/bitcoin-core-secp256k1 does not contain a CMakeLists.txt file.
 ```
 
-**原因**：Git子模块未初始化
+**原因**：bitcoin-core/secp256k1子模块未初始化（v0.2.0+仅需此一个子模块）
 
 **解决**：
 ```bash
-# 方法1：更新子模块
+# 方法1：更新子模块（推荐）
 git submodule update --init --recursive
 
 # 方法2：强制重新获取
@@ -441,7 +450,14 @@ git submodule update --init --recursive --force
 # 方法3：手动克隆
 rm -rf third_party/bitcoin-core-secp256k1
 git clone https://github.com/bitcoin-core/secp256k1.git third_party/bitcoin-core-secp256k1
+
+# 验证
+ls third_party/bitcoin-core-secp256k1/CMakeLists.txt  # 应存在
 ```
+
+**注意**（v0.2.0+架构变更）：
+- ✅ BitCrack代码已提取到`src/extracted/bitcrack/`，无需子模块
+- ✅ 仅bitcoin-core/secp256k1为Git子模块（用于CPU验证）
 
 ### 问题2：OpenSSL未找到
 
@@ -593,9 +609,15 @@ cd keycuda
 git checkout 001-implement-puzzle71solver-mred
 git pull origin 001-implement-puzzle71solver-mred
 
-# 3. 初始化子模块
-echo "[3/6] 初始化子模块..."
+# 3. 初始化子模块（v0.2.0+仅需bitcoin-core/secp256k1）
+echo "[3/6] 初始化子模块（BitCrack代码已内置）..."
 git submodule update --init --recursive
+
+# 验证BitCrack代码已提取
+if [ ! -d "src/extracted/bitcrack/cudaMath" ]; then
+    echo "错误: BitCrack代码未找到，请确认使用v0.2.0+版本"
+    exit 1
+fi
 
 # 4. 编译
 echo "[4/6] 编译项目..."
@@ -641,24 +663,42 @@ chmod +x deploy_puzzle71solver.sh
 
 ### 核心模块
 
+**v0.2.0+架构**（代码提取模式）：
+
 ```
 src/
 ├── KeyhuntCore/          # GPU核心引擎
 │   ├── gpu/             # GPU执行器和批次规划
 │   ├── adapters/        # BitCrack适配层
 │   └── shards/          # 范围分片
+├── extracted/           # 提取的第三方代码（含完整@origin溯源）
+│   └── bitcrack/        # BitCrack GPU kernel源码（40个文件）
+│       ├── cudaMath/    # secp256k1.cuh, sha256.cuh, ripemd160.cuh
+│       ├── CudaKeySearchDevice/  # GPU设备内核
+│       └── ...          # AddressUtil, CryptoUtil等
 ├── crypto/              # secp256k1 CPU验证
 ├── solver.cpp           # 主扫描逻辑
 └── main.cpp             # 入口
 
 third_party/
-├── bitcoin-core-secp256k1/  # Bitcoin官方ECC库
-└── BitCrack/                # GPU kernel源码
+├── bitcoin-core-secp256k1/  # Bitcoin官方ECC库（Git子模块）
+└── secp256k1-zkp/           # 未来endomorphism支持（Git子模块）
+
+docs/
+├── licenses/            # 第三方许可证
+│   └── BitCrack-LICENSE.MIT
+└── reference-sources.md # 代码溯源文档
 
 tests/
 └── validation/
     └── test_known_private_key_chain.cpp  # 独立验证链路
 ```
+
+**架构说明**：
+- ✅ **BitCrack代码**：已从Git子模块提取到`src/extracted/bitcrack/`
+- ✅ **完整溯源**：每个文件含@origin头（来源、commit、许可证）
+- ✅ **许可合规**：MIT许可证保存在`docs/licenses/`
+- 📖 **详细文档**：`docs/reference-sources.md`记录所有提取细节
 
 ### 验证流程
 
@@ -690,6 +730,43 @@ GPU扫描 → 找到候选 → CPU验证
 ---
 
 ## 更新日志
+
+### v0.2.0 (2025-10-06) - 架构重构
+
+**架构变更（Plan A执行）**：
+- ✅ **代码提取架构**：将BitCrack代码从Git子模块提取到`src/extracted/bitcrack/`
+- ✅ **简化依赖**：删除BitCrack、CudaBrainSecp、VanitySearch子模块
+- ✅ **完整溯源**：40个提取文件均含@origin属性头（来源、commit、许可证）
+- ✅ **许可合规**：BitCrack MIT许可证保存在`docs/licenses/BitCrack-LICENSE.MIT`
+- ✅ **溯源文档**：创建`docs/reference-sources.md`记录所有提取细节
+
+**克隆简化**：
+```bash
+# v0.2.0+ 只需一行（BitCrack已内置）
+git clone https://github.com/pest88-spec/keycuda.git
+
+# v0.1.x 需要额外步骤
+git clone https://github.com/pest88-spec/keycuda.git
+git submodule update --init --recursive  # 克隆BitCrack等子模块
+```
+
+**保留的子模块**：
+- ✅ `third_party/bitcoin-core-secp256k1/`（CPU验证，Git子模块）
+- ✅ `third_party/secp256k1-zkp/`（未来endomorphism支持）
+
+**回退方法**：
+```bash
+# 回退到v0.1.x架构（如需BitCrack子模块）
+git checkout v0.2.0-pre-extraction-backup
+git submodule update --init --recursive
+```
+
+**编译验证**：
+- ✅ 编译成功（无错误）
+- ✅ 性能保持840 Mkeys/s基线（未改动算法）
+- ✅ 所有测试通过
+
+---
 
 ### v2.0.0 (2025-10-03)
 
@@ -773,6 +850,6 @@ A: 目前仅支持NVIDIA CUDA GPU。AMD ROCm支持计划中。
 
 ---
 
-**最后更新**: 2025-10-03
-**版本**: v2.0.0
+**最后更新**: 2025-10-06
+**当前版本**: v0.2.0 (架构重构)
 **维护者**: Puzzle71Solver Team
