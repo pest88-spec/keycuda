@@ -207,40 +207,49 @@ jobs:
 
 **强制参考源（SoT）**：
 
-| 功能领域 | 参考源 | 同步命令 | 适配方式 |
+| 功能领域 | 参考源 | 提取位置 | 溯源方式 |
 |---------|--------|---------|---------|
-| Endomorphism | secp256k1-zkp | `sync_reference_sources.sh` | 通过adapter调用 |
-| Batch Stepping | VanitySearch | `sync_reference_sources.sh` | 移植kernel模式 |
-| CPU Validation | bitcoin-core/secp256k1 | `sync_reference_sources.sh` | 直接链接库 |
-| HASH160 | BitCrack | `sync_reference_sources.sh` | 复用device代码 |
+| Endomorphism | secp256k1-zkp | `src/KeyhuntCore/ecc/` | 文件头注释+LICENSE |
+| Batch Stepping | VanitySearch | `src/KeyhuntCore/batch/` | 文件头注释+LICENSE |
+| CPU Validation | bitcoin-core/secp256k1 | 系统库链接 | CMakeLists.txt |
+| HASH160 | BitCrack | `src/KeyhuntCore/hash/` | 文件头注释+LICENSE |
 
 **适配器模式强制执行**：
 
 ```cpp
-// ✅ 正确：通过adapter调用参考源
-// src/utils/endomorphism_adapter.h
-
-#include "snapshots/secp256k1-zkp/src/scalar_impl.h"
-
-namespace puzzle71 {
-namespace adapters {
+// ✅ 正确：使用从参考源提取的代码
+// src/KeyhuntCore/ecc/endomorphism.h
 
 /**
- * @brief Adapter for secp256k1-zkp endomorphism split
- * @origin https://github.com/ElementsProject/secp256k1-zkp
- * @origin_commit [记录在docs/reference-locks.md]
- * @spdx_license_identifier MIT
+ * Extracted from secp256k1-zkp endomorphism implementation
+ * Original: https://github.com/ElementsProject/secp256k1-zkp
+ * Original Path: src/scalar_impl.h::secp256k1_scalar_split_lambda
+ * Original Commit: [记录在docs/reference-sources.md]
+ * License: MIT
+ * Extracted Date: 2025-10-05
+ * Modifications: Adapted for Puzzle71Solver namespace
+ */
+
+namespace puzzle71 {
+namespace ecc {
+
+/**
+ * @brief Lambda分解标量（从secp256k1-zkp提取）
+ * @param scalar 输入标量
+ * @param k1 输出分量1
+ * @param k2 输出分量2
  */
 inline void split_scalar_lambda(
     const secp256k1_scalar* scalar,
     secp256k1_scalar* k1,
     secp256k1_scalar* k2
 ) {
-    // 调用参考源函数
+    // 从secp256k1-zkp提取的算法实现
+    // 原始代码逻辑保持不变，仅调整命名空间
     secp256k1_scalar_split_lambda(k1, k2, scalar);
 }
 
-} // namespace adapters
+} // namespace ecc
 } // namespace puzzle71
 
 // ❌ 错误：重新实现endomorphism
@@ -269,7 +278,7 @@ FORBIDDEN_IMPL=(
 for pattern in "${FORBIDDEN_IMPL[@]}"; do
     if grep -rn --include="*.cpp" --include="*.cu" --include="*.h" "\b${pattern}\b" src/; then
         echo "ERROR: Detected crypto reinvention: ${pattern}"
-        echo "  Use reference sources from snapshots/"
+        echo "  Extract from reference sources with proper attribution"
         VIOLATIONS=$((VIOLATIONS + 1))
     fi
 done
@@ -1288,248 +1297,224 @@ TEST_F(Hash160ParityTest, GPU_CPU_Parity_1024Samples) {
 
 ---
 
-## 6. 引用溯源与适配器模式
+## 6. 引用溯源与代码提取规范
 
-### 6.1 参考源同步协议
+### 6.1 代码提取前置检查清单
 
-**同步流程**：
+在从参考源提取代码前必须确认以下事项：
 
-```bash
-#!/bin/bash
-# tools/sync_reference_sources.sh
+**强制要求（P0级，违反立即回滚）**：
 
-ACTION=${1:-check}
+1. ✅ **许可证兼容性检查**
+   - 仅允许MIT/BSD/Apache 2.0等宽松许可证
+   - 复制完整许可证文本到 `docs/licenses/LICENSE-<ProjectName>.txt`
+   - 在提取文件头部添加SPDX标识符
 
-SNAPSHOT_DIR="snapshots"
-REFERENCE_LOCKS="docs/reference-locks.md"
+2. ✅ **禁止重新造轮子检查**
+   - 必须优先搜索现有项目中是否已有类似实现
+   - 检查参考源（BitCrack/VanitySearch/secp256k1-zkp）是否有可用代码
+   - **严禁**自己实现任何ECC/BigInt/Hash算法
 
-sync_repo() {
-    local name=$1
-    local url=$2
-    local commit=$3
-    local target_dir="${SNAPSHOT_DIR}/${name}"
-    
-    echo "Syncing ${name}..."
-    
-    if [ ! -d "$target_dir" ]; then
-        git clone "$url" "$target_dir"
-    fi
-    
-    cd "$target_dir"
-    git fetch --all
-    git checkout "$commit"
-    
-    # 记录实际commit hash
-    ACTUAL_COMMIT=$(git rev-parse HEAD)
-    
-    # 计算快照摘要
-    SNAPSHOT_HASH=$(find . -type f -not -path './.git/*' | sort | xargs sha256sum | sha256sum | awk '{print $1}')
-    
-    cd ../..
-    
-    # 更新reference-locks.md
-    echo "| ${name} | ${url} | ${ACTUAL_COMMIT} | ${SNAPSHOT_HASH} | $(date -u +%Y-%m-%dT%H:%M:%SZ) |" >> "$REFERENCE_LOCKS"
-    
-    echo "  ✓ ${name} synced to ${ACTUAL_COMMIT}"
-}
+3. ✅ **溯源信息记录**
+   - 记录原始项目URL
+   - 记录原始commit hash
+   - 记录原始文件路径和行号范围
+   - 记录提取日期和修改说明
 
-case $ACTION in
-    apply)
-        echo "=== Syncing Reference Sources ==="
-        
-        # 清空现有locks记录
-        cat > "$REFERENCE_LOCKS" << EOF
-# Reference Source Locks
+**溯源记录文档**：
 
-| Repository | URL | Commit | Snapshot SHA256 | Synced At |
-|------------|-----|--------|-----------------|-----------|
-EOF
-        
-        # 同步各个参考源
-        sync_repo "secp256k1-zkp" \
-            "https://github.com/ElementsProject/secp256k1-zkp.git" \
-            "master"
-        
-        sync_repo "VanitySearch" \
-            "https://github.com/JeanLucPons/VanitySearch.git" \
-            "master"
-        
-        sync_repo "BitCrack" \
-            "https://github.com/brichard19/BitCrack.git" \
-            "master"
-        
-        sync_repo "secp256k1" \
-            "https://github.com/bitcoin-core/secp256k1.git" \
-            "master"
-        
-        echo ""
-        echo "✓ All reference sources synced"
-        echo "  Lock file: $REFERENCE_LOCKS"
-        ;;
-        
-    verify)
-        echo "=== Verifying Reference Source Integrity ==="
-        
-        FAILURES=0
-        
-        while IFS='|' read -r name url commit snapshot_hash synced_at; do
-            # 跳过表头
-            if [[ "$name" =~ ^[[:space:]]*Repository || "$name" =~ ^[-|]+ ]]; then
-                continue
-            fi
-            
-            name=$(echo "$name" | xargs)
-            snapshot_hash=$(echo "$snapshot_hash" | xargs)
-            
-            if [ -z "$name" ]; then
-                continue
-            fi
-            
-            target_dir="${SNAPSHOT_DIR}/${name}"
-            
-            if [ ! -d "$target_dir" ]; then
-                echo "ERROR: Snapshot missing: $name"
-                FAILURES=$((FAILURES + 1))
-                continue
-            fi
-            
-            # 重新计算摘要
-            computed_hash=$(find "$target_dir" -type f -not -path '*/.git/*' | sort | xargs sha256sum | sha256sum | awk '{print $1}')
-            
-            if [ "$computed_hash" != "$snapshot_hash" ]; then
-                echo "ERROR: Snapshot integrity check failed: $name"
-                echo "  Expected: $snapshot_hash"
-                echo "  Computed: $computed_hash"
-                FAILURES=$((FAILURES + 1))
-            else
-                echo "✓ $name"
-            fi
-        done < "$REFERENCE_LOCKS"
-        
-        if [ $FAILURES -gt 0 ]; then
-            echo ""
-            echo "❌ Integrity check failed with $FAILURES errors"
-            exit 1
-        fi
-        
-        echo ""
-        echo "✓ All snapshots verified"
-        ;;
-        
-    *)
-        echo "Usage: $0 {apply|verify}"
-        exit 1
-        ;;
-esac
+所有提取必须在 `docs/reference-sources.md` 中记录：
+
+```markdown
+# Reference Sources Extraction Log
+
+| 提取文件 | 原始项目 | 原始路径 | Commit Hash | 提取日期 | 修改说明 |
+|---------|---------|---------|------------|---------|---------|
+| src/KeyhuntCore/hash/sha256.cu | BitCrack | CudaKeySearchDevice/sha256.cu | abc123def | 2025-10-05 | 调整命名空间 |
+| src/KeyhuntCore/ecc/endomorphism.cu | secp256k1-zkp | src/scalar_impl.h | def456abc | 2025-10-05 | CUDA移植 |
 ```
 
-### 6.2 适配器实现规范
+### 6.2 提取文件溯源注释规范
+
+**强制模板**（每个提取文件头部必须包含）：
 
 ```cpp
-// src/utils/endomorphism_adapter.h
-
 /**
- * @file endomorphism_adapter.h
- * @brief Adapter for secp256k1-zkp endomorphism operations
- * 
- * @origin https://github.com/ElementsProject/secp256k1-zkp
- * @origin_path src/scalar_impl.h
- * @origin_commit [见docs/reference-locks.md]
+ * Extracted from <ProjectName> by <Author>
+ *
+ * @origin       <https://github.com/user/project>
+ * @origin_path  <src/original/file.cpp>
+ * @origin_commit <abc123def456> (记录在docs/reference-sources.md)
  * @origin_license MIT
- * @modified_by Puzzle71Solver
- * @modifications "Adapted for CUDA device code, added error handling"
- * @fusion_date 2025-09-30
+ *
+ * @extracted_date   2025-10-05
+ * @extracted_by     Puzzle71Solver Team
+ * @modifications    Adapted for CUDA device code, namespace adjustment
+ * @reuse_check_L1   当前项目: 无现有实现
+ * @reuse_check_L2   <ProjectName>: <path::function>
+ * @sot_ref          SOT-CRYPTO: <project/file.cpp L123-L456>
+ *
  * @spdx_license_identifier MIT
  */
 
-#ifndef PUZZLE71_ENDOMORPHISM_ADAPTER_H
-#define PUZZLE71_ENDOMORPHISM_ADAPTER_H
+// ❌ 错误示例：缺少溯源注释
+// namespace puzzle71 {
+//     void my_sha256(...) { ... }  // 严重违规：无溯源信息
+// }
 
-// 包含参考源头文件
-#include "snapshots/secp256k1-zkp/src/scalar.h"
-#include "snapshots/secp256k1-zkp/src/scalar_impl.h"
-
+// ✅ 正确示例：完整溯源注释
+/**
+ * Extracted from BitCrack by brichard19
+ * @origin https://github.com/brichard19/BitCrack
+ * @origin_path CudaKeySearchDevice/sha256.cu
+ * @origin_commit 7a8b9c0d1e2f3456
+ * @origin_license MIT
+ * @extracted_date 2025-10-05
+ * @modifications Namespace change: global → puzzle71::hash
+ */
 namespace puzzle71 {
-namespace adapters {
-
-/**
- * @brief Adapter for endomorphism scalar split (CPU)
- * @param k 输入标量
- * @param k1 输出分量1
- * @param k2 输出分量2
- * @reuse_check_L1 当前项目: 无现有实现
- * @reuse_check_L2 secp256k1-zkp: src/scalar_impl.h::secp256k1_scalar_split_lambda
- * @sot_ref SOT-CRYPTO: secp256k1-zkp/scalar_impl.h L789-L823
- */
-inline void split_scalar_lambda_cpu(
-    const secp256k1_scalar* k,
-    secp256k1_scalar* k1,
-    secp256k1_scalar* k2
-) {
-    // 直接调用参考实现
-    secp256k1_scalar_split_lambda(k1, k2, k);
+namespace hash {
+    __device__ void sha256_transform(...) {
+        // BitCrack原始实现，仅调整命名空间
+    }
 }
-
-/**
- * @brief Adapter for endomorphism scalar split (GPU device)
- * @param k 输入标量（设备指针）
- * @param k1 输出分量1（设备指针）
- * @param k2 输出分量2（设备指针）
- * @note 这个是对CPU版本的CUDA移植，算法逻辑保持不变
- * @sot_ref SOT-CRYPTO: secp256k1-zkp/scalar_impl.h L789-L823
- */
-__device__ void split_scalar_lambda_gpu(
-    const uint256_t* k,
-    uint256_t* k1,
-    uint256_t* k2
-);
-
-} // namespace adapters
-} // namespace puzzle71
-
-#endif // PUZZLE71_ENDOMORPHISM_ADAPTER_H
+}
 ```
 
-### 6.3 禁止直接修改参考源
+### 6.3 许可证文件管理
 
-**CI检测器**：
+**许可证存储规范**：
+
+```
+docs/licenses/
+├── LICENSE-BitCrack.txt          # BitCrack完整MIT许可证
+├── LICENSE-CudaBrainSecp.txt     # CudaBrainSecp许可证
+├── LICENSE-VanitySearch.txt      # VanitySearch许可证
+└── LICENSE-secp256k1-zkp.txt     # secp256k1-zkp许可证
+```
+
+**CI检查脚本**：
 
 ```bash
 #!/bin/bash
-# ci/check_reference_immutability.sh
+# ci/check_extraction_attribution.sh
 
-SNAPSHOT_DIR="snapshots"
+echo "Checking code extraction attribution..."
 
-echo "Checking reference source immutability..."
+VIOLATIONS=0
 
-# 检查snapshots目录是否有未提交的修改
-if [ -d "$SNAPSHOT_DIR" ]; then
-    cd "$SNAPSHOT_DIR"
-    
-    for repo in */; do
-        cd "$repo"
-        
-        # 检查是否有未提交的修改
-        if ! git diff --quiet; then
-            echo "ERROR: Reference source has uncommitted changes: $repo"
-            echo "  Reference sources are READ-ONLY"
-            echo "  Use adapters in src/utils/ to wrap reference code"
-            exit 1
-        fi
-        
-        # 检查是否有新增的未跟踪文件
-        if [ -n "$(git ls-files --others --exclude-standard)" ]; then
-            echo "ERROR: Reference source has untracked files: $repo"
-            exit 1
-        fi
-        
-        cd ..
-    done
-    
-    cd ..
+# 检查所有源文件是否包含溯源注释
+for file in $(find src/ -name "*.cu" -o -name "*.cpp" -o -name "*.h"); do
+    # 跳过自己实现的文件（需要在docs/original-implementations.txt中声明）
+    if grep -q "^${file}$" docs/original-implementations.txt 2>/dev/null; then
+        continue
+    fi
+
+    # 检查是否有@origin标记
+    if ! grep -q "@origin" "$file"; then
+        echo "WARNING: Missing @origin attribution in $file"
+        echo "  If this is original work, add to docs/original-implementations.txt"
+        echo "  If extracted from reference, add @origin/@origin_commit tags"
+        VIOLATIONS=$((VIOLATIONS + 1))
+    fi
+
+    # 检查是否有@spdx_license_identifier
+    if ! grep -q "@spdx_license_identifier" "$file"; then
+        echo "ERROR: Missing @spdx_license_identifier in $file"
+        VIOLATIONS=$((VIOLATIONS + 1))
+    fi
+done
+
+# 检查许可证文件是否存在
+REQUIRED_LICENSES=("BitCrack" "CudaBrainSecp" "VanitySearch" "secp256k1-zkp")
+
+for license in "${REQUIRED_LICENSES[@]}"; do
+    if [ ! -f "docs/licenses/LICENSE-${license}.txt" ]; then
+        echo "ERROR: Missing license file: docs/licenses/LICENSE-${license}.txt"
+        VIOLATIONS=$((VIOLATIONS + 1))
+    fi
+done
+
+if [ $VIOLATIONS -gt 0 ]; then
+    echo ""
+    echo "❌ Attribution check failed with $VIOLATIONS violations"
+    exit 1
 fi
 
-echo "✓ Reference sources are immutable"
+echo "✓ All code extractions properly attributed"
+```
+
+### 6.4 禁止简化/虚拟/占位实现
+
+**严格禁止的实现模式**：
+
+```cpp
+// ❌ 绝对禁止：简化实现
+__device__ void quick_ec_mul(uint256_t* k, ec_point_t* p) {
+    // 简化版本的点乘 - 严重违规！
+    // 必须使用完整的参考实现
+}
+
+// ❌ 绝对禁止：虚拟/Stub实现
+__device__ void hash160(const uint8_t* pubkey, uint8_t* hash) {
+    // TODO: 实现HASH160 - 严重违规！
+    memset(hash, 0, 20);  // 占位代码
+}
+
+// ❌ 绝对禁止：假数据生成
+__device__ void validate_signature(uint256_t* sig) {
+    return true;  // 虚假验证 - 严重违规！
+}
+
+// ✅ 正确：完整提取参考实现
+/**
+ * Extracted from BitCrack::HASH160
+ * @origin https://github.com/brichard19/BitCrack
+ * @origin_path CudaKeySearchDevice/sha256.cu + ripemd160.cu
+ */
+__device__ void hash160(const uint8_t* pubkey, size_t len, uint8_t* hash) {
+    uint8_t sha256_out[32];
+    sha256_transform(pubkey, len, sha256_out);  // BitCrack完整实现
+    ripemd160_transform(sha256_out, 32, hash);  // BitCrack完整实现
+}
+```
+
+**CI占位符检测**：
+
+```bash
+#!/bin/bash
+# ci/scan_placeholders.sh
+
+echo "Scanning for placeholder/stub implementations..."
+
+VIOLATIONS=0
+
+# 检测占位符关键词
+PLACEHOLDER_PATTERNS=(
+    "TODO.*implement"
+    "FIXME.*stub"
+    "placeholder"
+    "dummy.*implementation"
+    "simplified.*version"
+    "mock.*data"
+    "fake.*result"
+)
+
+for pattern in "${PLACEHOLDER_PATTERNS[@]}"; do
+    if grep -rn --include="*.cu" --include="*.cpp" -iE "$pattern" src/; then
+        echo "ERROR: Found placeholder/stub code: $pattern"
+        VIOLATIONS=$((VIOLATIONS + 1))
+    fi
+done
+
+if [ $VIOLATIONS -gt 0 ]; then
+    echo ""
+    echo "❌ Placeholder detection failed with $VIOLATIONS violations"
+    echo "  All implementations must be complete and extracted from reference sources"
+    exit 1
+fi
+
+echo "✓ No placeholders found"
 ```
 
 ---
@@ -1835,25 +1820,26 @@ on:
     branches: [main]
 
 jobs:
-  # 阶段1: 参考源同步与验证
-  reference-sync:
+  # 阶段1: 代码提取溯源验证
+  extraction-attribution-check:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v3
-      
-      - name: Sync reference sources
-        run: ./tools/sync_reference_sources.sh apply
-      
-      - name: Verify reference integrity
-        run: ./tools/sync_reference_sources.sh verify
-      
-      - name: Check reference immutability
-        run: ./ci/check_reference_immutability.sh
+
+      - name: Check code extraction attribution
+        run: ./ci/check_extraction_attribution.sh
+
+      - name: Verify license files
+        run: |
+          ./ci/verify_license_files.sh
+
+      - name: Scan for placeholder code
+        run: ./ci/scan_placeholders.sh
 
   # 阶段2: 静态分析
   static-analysis:
     runs-on: ubuntu-latest
-    needs: reference-sync
+    needs: extraction-attribution-check
     steps:
       - uses: actions/checkout@v3
       
@@ -2066,8 +2052,8 @@ jobs:
 - [ ] 测试覆盖率≥80%
 
 ## 引用溯源
-- [ ] 已运行tools/sync_reference_sources.sh --apply
-- [ ] 未直接修改snapshots/目录下的参考源
+- [ ] 已记录代码提取溯源信息（docs/reference-sources.md）
+- [ ] 文件头包含完整@origin注释
 - [ ] 所有ECC/BigInt代码通过adapter调用参考源
 - [ ] 已在函数注释中标注@reuse_check和@sot_ref
 
@@ -2109,8 +2095,8 @@ jobs:
 - [ ] 操作员审计：CLI强制要求operator-id和purpose
 
 ## 第二轮：引用溯源审查
-- [ ] 参考源已同步（docs/reference-locks.md最新）
-- [ ] 未直接修改参考源（snapshots/目录不可变）
+- [ ] 提取代码包含完整溯源信息（docs/reference-sources.md已更新）
+- [ ] 许可证文件已复制到docs/licenses/
 - [ ] 所有密码学操作通过adapter调用参考源
 - [ ] @reuse_check注释记录5级检查结果
 - [ ] @sot_ref引用具体的参考源位置
@@ -2436,7 +2422,7 @@ You are working on Puzzle71Solver, a CUDA-accelerated Bitcoin Puzzle #71 solver 
    - Commit MUST reference test failure evidence
 
 3. **NO-CRYPTO-REINVENTION**: Use reference sources ONLY
-   - Run tools/sync_reference_sources.sh --apply BEFORE touching ECC code
+   - Verify @origin attribution exists BEFORE writing ECC code
    - Call secp256k1-zkp/VanitySearch/BitCrack through adapters in src/utils/
    - NEVER write your own: ec_mul, scalar_split, hash160, bigint operations
    - Mark ALL crypto code with @sot_ref comments
@@ -2457,7 +2443,7 @@ You are working on Puzzle71Solver, a CUDA-accelerated Bitcoin Puzzle #71 solver 
 
 Answer these questions (ALL must be YES):
 
-1. [ ] Have you synced reference sources? (tools/sync_reference_sources.sh --apply)
+1. [ ] Have you verified extraction attribution? (ci/check_extraction_attribution.sh)
 2. [ ] Have you checked config/puzzle71.yaml for deterministic parameters?
 3. [ ] Have you written FAILING tests for this task?
 4. [ ] Have you saved test failure evidence?
@@ -2780,7 +2766,7 @@ ctest --output-on-failure
 
 | 脚本路径 | 用途 | 执行频率 | 强制性 |
 |---------|------|---------|--------|
-| `tools/sync_reference_sources.sh` | 同步参考源快照 | 每次工作前 | 强制 |
+| `ci/check_extraction_attribution.sh` | 验证代码提取溯源 | 每次CI | 强制 |
 | `ci/check_determinism.sh` | 检测非确定性API | 每次CI | 强制 |
 | `ci/tdd-gate.yml` | TDD证据验证 | 每次CI | 强制 |
 | `ci/check_crypto_reinvention.sh` | 检测密码学重新实现 | 每次CI | 强制 |
@@ -2788,7 +2774,7 @@ ctest --output-on-failure
 | `ci/verify_all_digests.sh` | 验证所有摘要 | 每次CI | 强制 |
 | `ci/check_new_files.sh` | 新文件白名单检查 | 每次CI | 强制 |
 | `ci/scan_placeholders.sh` | 占位符扫描 | 每次CI | 强制 |
-| `ci/check_reference_immutability.sh` | 参考源不可变检查 | 每次CI | 强制 |
+| `ci/verify_license_files.sh` | 许可证文件检查 | 每次CI | 强制 |
 | `scripts/replay/verify-replay.sh` | 确定性重放验证 | 提交前+CI | 强制 |
 | `scripts/run-benchmarks.sh` | GPU性能基准测试 | 提交前+CI+每晚 | 强制 |
 | `tools/nsight/check_register_budget.sh` | 寄存器预算检查 | CI+按需 | 强制 |
@@ -2809,8 +2795,8 @@ ctest --output-on-failure
 
 ```bash
 # === 工作前准备 ===
-./tools/sync_reference_sources.sh apply
-./tools/sync_reference_sources.sh verify
+./ci/check_extraction_attribution.sh
+./ci/scan_placeholders.sh
 
 # === TDD工作流 ===
 # 1. 编写失败的测试
@@ -2858,8 +2844,8 @@ git log --follow src/xxx.cpp
 # === 运行检查 ===
 ./ci/check_determinism.sh
 ./ci/check_crypto_reinvention.sh
-./ci/check_reference_immutability.sh
-./tools/sync_reference_sources.sh verify
+./ci/check_extraction_attribution.sh
+./ci/verify_license_files.sh
 
 # === 运行测试 ===
 mkdir build && cd build && cmake .. && make && cd ..
