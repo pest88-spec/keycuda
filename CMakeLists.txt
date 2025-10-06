@@ -69,18 +69,16 @@ target_include_directories(Puzzle71Solver PRIVATE
   src/services
   src/compare
   src/core
-  third_party/VanitySearch/GPU
-  third_party/CudaBrainSecp/GPU
-  third_party/BitCrack
-  third_party/BitCrack/AddressUtil
-  third_party/BitCrack/CryptoUtil
-  third_party/BitCrack/KeyFinderLib
-  third_party/BitCrack/CudaKeySearchDevice
-  third_party/BitCrack/cudaMath
-  third_party/BitCrack/cudaUtil
-  third_party/BitCrack/util
-  third_party/BitCrack/Logger
-  third_party/BitCrack/secp256k1lib
+  src/extracted/bitcrack
+  src/extracted/bitcrack/AddressUtil
+  src/extracted/bitcrack/CryptoUtil
+  src/extracted/bitcrack/KeyFinderLib
+  src/extracted/bitcrack/CudaKeySearchDevice
+  src/extracted/bitcrack/cudaMath
+  src/extracted/bitcrack/cudaUtil
+  src/extracted/bitcrack/util
+  src/extracted/bitcrack/Logger
+  src/extracted/bitcrack/secp256k1lib
 )
 target_link_libraries(Puzzle71Solver PRIVATE CUDA::cudart)
 
@@ -106,29 +104,29 @@ target_link_libraries(Puzzle71Solver PRIVATE
 )
 
 set(BITCRACK_SOURCES
-  third_party/BitCrack/CudaKeySearchDevice/CudaAtomicList.cu
-  third_party/BitCrack/CudaKeySearchDevice/CudaDeviceKeys.cu
-  third_party/BitCrack/CudaKeySearchDevice/CudaHashLookup.cu
-  third_party/BitCrack/CudaKeySearchDevice/cudabridge.cu
-  third_party/BitCrack/CudaKeySearchDevice/CudaKeySearchDevice.cu
-  third_party/BitCrack/CudaKeySearchDevice/CudaKeySearchDevice.cpp
-  third_party/BitCrack/cudaUtil/cudaUtil.cpp
-  third_party/BitCrack/AddressUtil/Base58.cpp
-  third_party/BitCrack/AddressUtil/hash.cpp
-  third_party/BitCrack/CryptoUtil/hash.cpp
-  third_party/BitCrack/CryptoUtil/ripemd160.cpp
-  third_party/BitCrack/CryptoUtil/sha256.cpp
-  third_party/BitCrack/CryptoUtil/Rng.cpp
-  third_party/BitCrack/util/util.cpp
-  third_party/BitCrack/Logger/Logger.cpp
-  third_party/BitCrack/secp256k1lib/secp256k1.cpp
+  src/extracted/bitcrack/CudaKeySearchDevice/CudaAtomicList.cu
+  src/extracted/bitcrack/CudaKeySearchDevice/CudaDeviceKeys.cu
+  src/extracted/bitcrack/CudaKeySearchDevice/CudaHashLookup.cu
+  src/extracted/bitcrack/CudaKeySearchDevice/cudabridge.cu
+  src/extracted/bitcrack/CudaKeySearchDevice/CudaKeySearchDevice.cu
+  src/extracted/bitcrack/CudaKeySearchDevice/CudaKeySearchDevice.cpp
+  src/extracted/bitcrack/cudaUtil/cudaUtil.cpp
+  src/extracted/bitcrack/AddressUtil/Base58.cpp
+  src/extracted/bitcrack/AddressUtil/hash.cpp
+  src/extracted/bitcrack/CryptoUtil/hash.cpp
+  src/extracted/bitcrack/CryptoUtil/ripemd160.cpp
+  src/extracted/bitcrack/CryptoUtil/sha256.cpp
+  src/extracted/bitcrack/CryptoUtil/Rng.cpp
+  src/extracted/bitcrack/util/util.cpp
+  src/extracted/bitcrack/Logger/Logger.cpp
+  src/extracted/bitcrack/secp256k1lib/secp256k1.cpp
 )
 
 target_sources(Puzzle71Solver PRIVATE ${BITCRACK_SOURCES})
 
-# Suppress third-party library warnings (BitCrack)
+# Suppress warnings for extracted BitCrack code (preserve original behavior)
 set_source_files_properties(${BITCRACK_SOURCES} PROPERTIES
-  COMPILE_FLAGS "-w"  # Disable all warnings for third-party code
+  COMPILE_FLAGS "-w"  # Disable all warnings for extracted code
 )
 
 # Enable testing / GoogleTest via FetchContent
@@ -163,7 +161,7 @@ if(PUZZLE71_TEST_SOURCES)
   target_compile_definitions(puzzle71_tests PRIVATE PUZZLE71_TESTING=1)
   target_include_directories(puzzle71_tests PRIVATE
     src
-    third_party/BitCrack
+    src/extracted/bitcrack
     third_party/bitcoin-core-secp256k1/include
   )
   add_test(NAME puzzle71_tests COMMAND puzzle71_tests)
