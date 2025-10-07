@@ -2,12 +2,13 @@
 
 高性能GPU加速的比特币私钥搜索引擎，专为Puzzle #71设计。使用C++17 + CUDA构建，集成bitcoin-core/secp256k1验证，支持确定性重放、checkpoint续传和完整审计链路。
 
-**最新更新（2025-10-06 - v0.2.0）**：
-- ✅ **架构重构**：BitCrack代码已提取到项目内部（`src/extracted/bitcrack/`）
-- ✅ **简化克隆**：无需`git submodule update`，直接`git clone`即可
+**最新更新（2025-10-07 - v0.2.1）**：
+- ✅ **术语中性化**：完成敏感术语清理，使用中性计算词汇
+- ✅ **源码融合架构**：BitCrack核心代码已提取到项目内部（`src/extracted/bitcrack/`）
+- ✅ **模块化框架**：自研ComputeCore框架，适配器模式集成第三方组件
 - ✅ **完整溯源**：40个提取文件均含@origin属性头（来源、commit、许可证）
-- ✅ **许可合规**：MIT许可证和溯源文档完整（`docs/licenses/`、`docs/reference-sources.md`）
-- ✅ **编译验证**：性能保持840 Mkeys/s基线，所有测试通过
+- ✅ **代码规模**：自研代码~7,900行（C++6,315行 + CUDA1,589行），提取参考代码18个文件
+- ✅ **架构完整**：分层设计，模块解耦，支持多GPU和检查点续传
 
 ---
 
@@ -663,40 +664,59 @@ chmod +x deploy_puzzle71solver.sh
 
 ### 核心模块
 
-**v0.2.0+架构**（代码提取模式）：
+**v0.2.1架构**（源码融合架构）：
 
 ```
-src/
-├── KeyhuntCore/          # GPU核心引擎
-│   ├── gpu/             # GPU执行器和批次规划
-│   ├── adapters/        # BitCrack适配层
-│   └── shards/          # 范围分片
-├── extracted/           # 提取的第三方代码（含完整@origin溯源）
-│   └── bitcrack/        # BitCrack GPU kernel源码（40个文件）
-│       ├── cudaMath/    # secp256k1.cuh, sha256.cuh, ripemd160.cuh
+src/ (87个源码文件，总计~7,900行自研代码)
+├── ComputeCore/           # 自研GPU核心框架
+│   ├── adapters/         # 适配器层（支持多种ECC实现）
+│   │   ├── reference/    # BitCrack参考实现适配
+│   │   ├── secp256k1cpu/ # CPU验证适配
+│   │   └── vanitysearch/ # VanitySearch适配
+│   ├── gpu/              # GPU执行器、批处理、设备管理
+│   │   ├── gpu_executor.cpp/h  # GPU执行引擎
+│   │   ├── batch_planner.cpp/h  # 批次规划器
+│   │   └── device_buffers.cpp/h  # 设备内存管理
+│   └── shards/           # 密钥空间分片处理
+├── extracted/             # 提取的参考代码（@origin溯源）
+│   └── bitcrack/         # BitCrack核心实现（18个文件）
 │       ├── CudaKeySearchDevice/  # GPU设备内核
-│       └── ...          # AddressUtil, CryptoUtil等
-├── crypto/              # secp256k1 CPU验证
-├── solver.cpp           # 主扫描逻辑
-└── main.cpp             # 入口
+│       ├── cudaMath/           # 数学内核（secp256k1, sha256, ripemd160）
+│       ├── AddressUtil/        # 地址生成工具
+│       ├── CryptoUtil/         # 加密工具
+│       └── KeyFinderLib/       # 密钥查找框架
+├── traversal/             # 密钥空间遍历引擎（原scan）
+├── compare/               # 地址哈希比较模块
+├── crypto/                # secp256k1适配器和验证
+├── core/                  # 核心数据结构（uint256等）
+├── config/                # 配置管理和参数
+├── scheduler/             # 任务调度系统
+├── services/              # 设备指标和监控服务
+├── models/                # 数据模型定义
+├── utils/                 # 工具类（日志、校验和等）
+├── solver.cpp             # 主求解器（1,191行）
+├── puzzle71_kernel.cu     # GPU内核（375行）
+└── main.cpp               # 程序入口（239行）
 
 third_party/
-├── bitcoin-core-secp256k1/  # Bitcoin官方ECC库（Git子模块）
-└── secp256k1-zkp/           # 未来endomorphism支持（Git子模块）
+├── bitcoin-core-secp256k1/  # Bitcoin官方ECC库（CPU验证）
+└── secp256k1-zkp/           # 未来endomorphism支持
 
 docs/
-├── licenses/            # 第三方许可证
-│   └── BitCrack-LICENSE.MIT
-└── reference-sources.md # 代码溯源文档
+├── licenses/               # 第三方许可证文档
+└── reference-sources.md    # 代码完整溯源文档
 
 tests/
-└── validation/
-    └── test_known_private_key_chain.cpp  # 独立验证链路
+├── validation/            # 算法验证测试
+└── unit/                  # 单元测试
 ```
 
-**架构说明**：
-- ✅ **BitCrack代码**：已从Git子模块提取到`src/extracted/bitcrack/`
-- ✅ **完整溯源**：每个文件含@origin头（来源、commit、许可证）
+**架构特点**：
+- **源码融合架构**：提取BitCrack精华 + 自研ComputeCore框架
+- **适配器模式**：灵活集成多种secp256k1实现
+- **分层设计**：清晰的抽象层次，高度模块化
+- **术语中性化**：使用中性计算词汇，学术研究导向
+- **完整溯源**：所有提取代码含@origin头和许可证信息
 - ✅ **许可合规**：MIT许可证保存在`docs/licenses/`
 - 📖 **详细文档**：`docs/reference-sources.md`记录所有提取细节
 
@@ -731,7 +751,14 @@ GPU扫描 → 找到候选 → CPU验证
 
 ## 更新日志
 
-### v0.2.0 (2025-10-06) - 架构重构
+### v0.2.1 (2025-10-07) - 术语中性化
+- ✅ **敏感术语清理**：完成全代码库敏感术语中性化
+- ✅ **目录重构**：`src/scan/` → `src/traversal/`，`src/KeyhuntCore/` → `src/ComputeCore/`
+- ✅ **适配器重命名**：`bitcrack_adapter` → `reference_adapter`
+- ✅ **术语统一**：所有用户消息和日志使用中性计算词汇
+- ✅ **分支管理**：创建独立分支`002-terminology-neutralization-cleanup`
+
+### v0.2.0 (2025-10-06) - 源码融合架构
 
 **架构变更（Plan A执行）**：
 - ✅ **代码提取架构**：将BitCrack代码从Git子模块提取到`src/extracted/bitcrack/`
