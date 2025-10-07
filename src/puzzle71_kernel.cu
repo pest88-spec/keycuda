@@ -276,7 +276,7 @@ KernelLaunchConfig ChooseLaunchConfig(std::uint64_t desired_threads) {
         block_size = std::min(static_cast<int>(device_props.maxThreadsPerBlock), 1024);
     }
 
-    // Clamp block size to proven range for VanitySearch/BitCrack kernels
+    // Clamp block size to proven range for reference kernels
     block_size = std::clamp(block_size, 128, 512);
 
     // Calculate optimal grid size to fully utilize all SMs

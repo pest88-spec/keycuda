@@ -41,7 +41,7 @@ set(PUZZLE71_CORE_SOURCES
   src/utils/telemetry_logger.cpp
   src/utils/prometheus_exporter.cpp
   src/scheduler/range_scheduler.cpp
-  src/scan/puzzle71_partition.cpp
+  src/traversal/puzzle71_partition.cpp
   src/services/device_metrics.cpp
   src/config/puzzle71_config.cpp
   src/crypto/secp256k1_adapter.cpp
@@ -65,7 +65,7 @@ target_include_directories(Puzzle71Solver PRIVATE
   src/utils
   src/config
   src/scheduler
-  src/scan
+  src/traversal
   src/services
   src/compare
   src/core

@@ -2,7 +2,7 @@
 
 #include "config/puzzle71_config.h"
 #include "checkpoint_manifest.h"
-#include "scan/puzzle71_partition.h"
+#include "traversal/puzzle71_partition.h"
 #include "scheduler/range_scheduler.h"
 #include "utils/digest_verifier.h"
 #include "utils/checkpoint_crypto.h"
@@ -567,7 +567,7 @@ Puzzle71Solver::Puzzle71Solver(SolverOptions options) : options_(std::move(optio
 
 void Puzzle71Solver::Run() {
     // CRITICAL: Do NOT call parity_records_.clear() - causes memory corruption on H20
-    // ParityRecord contains BitCrack Address objects with unsafe destructors
+    // ParityRecord contains reference Address objects with unsafe destructors
 
     std::array<std::uint32_t, kDigestWordCount> target_hash = constants::kTargetHash160;
     std::optional<core::UInt256> parity_scalar_override;
@@ -820,7 +820,7 @@ void Puzzle71Solver::Run() {
 
     for (const auto& shard : schedule) {
         DebugLog(options_, "[debug] Processing shard [" + shard.start.ToHex() + " : " + shard.end.ToHex() + "]");
-        auto partitions = scan::PartitionKeyspace(shard, /*slices=*/1);
+        auto partitions = traversal::PartitionKeyspace(shard, /*slices=*/1);
         DebugLog(options_, "[debug] Created " + std::to_string(partitions.size()) + " partition(s)");
         for (const auto& partition : partitions) {
                 DebugLog(options_, "[debug] Partition [" + partition.start.ToHex() + " : " + partition.end.ToHex() + "]");
