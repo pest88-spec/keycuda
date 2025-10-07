@@ -14,12 +14,12 @@ echo ""
 echo "[1/3] Checking Git submodules..."
 cd "$REPO_ROOT"
 
-if [[ -d ".git" ]]; then
-    echo "Initializing and updating submodules..."
+if [[ -d ".git" && -f ".gitmodules" ]]; then
+    echo "Syncing required submodules (bitcoin-core/secp256k1, secp256k1-zkp)..."
     git submodule update --init --recursive
     echo "✓ Submodules updated"
 else
-    echo "⚠ Not a git repository, skipping submodule init"
+    echo "ℹ No git metadata detected or .gitmodules missing; skipping submodule init"
 fi
 
 # 2. Install OpenSSL if missing

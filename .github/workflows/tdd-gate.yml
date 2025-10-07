@@ -1,0 +1,64 @@
+name: TDD Enforcement Gate
+
+on:
+  pull_request:
+    paths:
+      - 'src/**'
+      - 'tests/**'
+      - 'docs/validation/evidence/**'
+
+jobs:
+  tdd-gate:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Fetch base branch
+        run: |
+          if [ -n "${{ github.base_ref }}" ]; then
+            git fetch origin "${{ github.base_ref }}:${{ github.base_ref }}"
+          fi
+
+      - name: Verify test-first evidence
+        run: |
+          set -euo pipefail
+          BASE_REF="${{ github.base_ref }}"
+          if [[ -z "$BASE_REF" ]]; then
+            echo "Base ref not provided; skipping TDD gate"
+            exit 0
+          fi
+          MODIFIED=$(git diff --name-only "origin/${BASE_REF}"..HEAD | grep -E '^(src|tests)/' || true)
+          if [[ -z "$MODIFIED" ]]; then
+            echo "No src/tests changes detected; skipping"
+            exit 0
+          fi
+          FAIL=0
+          while IFS= read -r file; do
+            [[ -z "$file" ]] && continue
+            TASK_ID=$(git log -1 --pretty=%B -- "$file" | grep -oE 'T[0-9]+' | head -n1 || true)
+            if [[ -z "$TASK_ID" ]]; then
+              echo "::error file=$file::Missing task ID (T###) in commit message"
+              FAIL=1
+              continue
+            fi
+            EVIDENCE="docs/validation/evidence/${TASK_ID}_test_failures.log"
+            if [[ ! -f "$EVIDENCE" ]]; then
+              echo "::error file=$file::Expected evidence file $EVIDENCE not found"
+              FAIL=1
+              continue
+            fi
+            if git ls-files --error-unmatch "$EVIDENCE" >/dev/null 2>&1; then
+              EVIDENCE_TIME=$(git log -1 --format=%ct "$EVIDENCE")
+            else
+              EVIDENCE_TIME=$(date +%s -r "$EVIDENCE")
+            fi
+            FILE_TIME=$(git log -1 --format=%ct "$file")
+            if [[ -n "$EVIDENCE_TIME" && -n "$FILE_TIME" ]] && (( EVIDENCE_TIME > FILE_TIME )); then
+              echo "::error file=$file::Evidence $EVIDENCE created after implementation"
+              FAIL=1
+            fi
+          done <<<"$MODIFIED"
+          exit $FAIL
