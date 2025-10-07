@@ -1,11 +1,11 @@
 #pragma once
 
-#include "KeyhuntCore/gpu/batch_planner.h"
-#include "KeyhuntCore/shards/shard_walker.h"
-#include "KeyhuntCore/adapters/bitcrack/keyfinder_adapter.h"
-#include "KeyhuntCore/gpu/device_buffers.h"
-#include "KeyhuntCore/gpu/device_memory.h"
-#include "KeyhuntCore/gpu/device_results.h"
+#include "ComputeCore/gpu/batch_planner.h"
+#include "ComputeCore/shards/shard_walker.h"
+#include "ComputeCore/adapters/reference/keyfinder_adapter.h"
+#include "ComputeCore/gpu/device_buffers.h"
+#include "ComputeCore/gpu/device_memory.h"
+#include "ComputeCore/gpu/device_results.h"
 #include "CudaKeySearchDevice/CudaDeviceKeys.h"
 #include "KeyFinderLib/KeySearchTypes.h"
 
@@ -21,7 +21,7 @@ struct StepResult {
     core::UInt256 next_scalar;
     std::uint64_t processed_keys{0};
     std::uint64_t elapsed_us{0};
-    std::vector<bitcrack_adapter::KeySearchResult> candidates;
+    std::vector<reference_adapter::ComputationResult> candidates;
     double keys_per_sec{0.0};
     std::uint32_t dropped_candidates{0};
 };

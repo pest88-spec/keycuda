@@ -5,9 +5,9 @@
 
 #include "core/uint256.h"
 
-namespace bitcrack_adapter {
+namespace reference_adapter {
 
-struct KeySearchResult {
+struct ComputationResult {
     puzzle71::core::UInt256 private_key;
     puzzle71::core::UInt256 x;
     puzzle71::core::UInt256 y;
@@ -15,5 +15,5 @@ struct KeySearchResult {
     std::array<std::uint32_t, 5> digest{};
 };
 
-}  // namespace bitcrack_adapter
+}  // namespace reference_adapter
 

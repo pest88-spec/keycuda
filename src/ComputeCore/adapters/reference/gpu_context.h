@@ -1,8 +1,8 @@
 #pragma once
 
-#include "KeyhuntCore/shards/shard_walker.h"
-#include "KeyhuntCore/gpu/batch_planner.h"
-#include "KeyhuntCore/gpu/gpu_executor.h"
+#include "ComputeCore/shards/shard_walker.h"
+#include "ComputeCore/gpu/batch_planner.h"
+#include "ComputeCore/gpu/gpu_executor.h"
 #include "scheduler/range_scheduler.h"
 
 #include <array>
@@ -10,7 +10,7 @@
 #include <optional>
 #include <utility>
 
-namespace puzzle71::bitcrack_adapter {
+namespace puzzle71::reference_adapter {
 
 struct GpuContext {
     shards::ShardWalker walker;
@@ -30,4 +30,4 @@ GpuContext BuildGpuContext(const scheduler::Shard& shard,
                            bool compressed,
                            bool verbose);
 
-}  // namespace puzzle71::bitcrack_adapter
+}  // namespace puzzle71::reference_adapter

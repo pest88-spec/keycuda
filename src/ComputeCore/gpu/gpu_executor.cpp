@@ -1,7 +1,7 @@
-#include "KeyhuntCore/gpu/gpu_executor.h"
+#include "ComputeCore/gpu/gpu_executor.h"
 
-#include "KeyhuntCore/adapters/bitcrack/conversions.h"
-#include "KeyhuntCore/gpu/batch_planner.h"
+#include "ComputeCore/adapters/reference/conversions.h"
+#include "ComputeCore/gpu/batch_planner.h"
 #include "compare/kernels/hash160_fused.h"
 #include "cuda_runtime.h"
 #include "CudaKeySearchDevice/CudaDeviceKeys.h"
@@ -20,18 +20,18 @@ namespace puzzle71::gpu {
 
 namespace {
 
-std::vector<secp256k1::uint256> ToBitCrackScalars(const std::vector<core::UInt256>& scalars) {
+std::vector<secp256k1::uint256> ToReferenceScalars(const std::vector<core::UInt256>& scalars) {
     std::vector<secp256k1::uint256> out;
     out.reserve(scalars.size());
     for (const auto& scalar : scalars) {
-        out.push_back(::bitcrack_adapter::ToBitCrack(scalar));
+        out.push_back(::reference_adapter::ToReferenceFormat(scalar));
     }
     return out;
 }
 
 core::UInt256 FromDeviceWords(const std::uint32_t words[8]) {
     secp256k1::uint256 value(words, secp256k1::uint256::BigEndian);
-    return ::bitcrack_adapter::FromBitCrack(value);
+    return ::reference_adapter::FromReferenceFormat(value);
 }
 
 void FinalizePrivateKey(core::UInt256* out,
@@ -277,7 +277,7 @@ void GpuExecutor::PrepareBatch(const BatchConfig& config,
         if (need_reseed && !scalars_ready) {
             host_scalars_.Configure(config_.grid, config_.block, config_.points_per_thread);
             DeviceBatch batch = host_scalars_.PrepareBatch(batch_start_, config_.keys_total);
-            scalars = ToBitCrackScalars(batch.scalars);
+            scalars = ToReferenceScalars(batch.scalars);
             scalars_ready = true;
         }
 
@@ -396,14 +396,14 @@ StepResult GpuExecutor::Execute() {
                   "cudaMemcpy(candidates)");
     }
 
-    std::vector<bitcrack_adapter::KeySearchResult> out;
+    std::vector<reference_adapter::ComputationResult> out;
     out.reserve(candidate_count);
 
     const std::uint64_t total_threads = static_cast<std::uint64_t>(config_.block.x) * config_.grid.x;
 
     for (std::uint32_t i = 0; i < candidate_count; ++i) {
         const DeviceCandidate& cand = host_candidates_[i];
-        bitcrack_adapter::KeySearchResult converted{};
+        reference_adapter::ComputationResult converted{};
 
         const std::uint64_t offset = static_cast<std::uint64_t>(cand.idx) * total_threads +
                                      (static_cast<std::uint64_t>(cand.block) * config_.block.x + cand.thread);

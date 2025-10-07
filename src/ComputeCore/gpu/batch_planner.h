@@ -1,6 +1,6 @@
 #pragma once
 
-#include "KeyhuntCore/shards/shard_walker.h"
+#include "ComputeCore/shards/shard_walker.h"
 #include "puzzle71_kernel.h"
 
 #include <cuda_runtime.h>

@@ -11,12 +11,12 @@
 
 #include <nlohmann/json.hpp>
 
-#include "KeyhuntCore/adapters/bitcrack/conversions.h"
-#include "KeyhuntCore/adapters/bitcrack/keyfinder_adapter.h"
-#include "KeyhuntCore/adapters/bitcrack/gpu_context.h"
-#include "KeyhuntCore/shards/shard_walker.h"
-#include "KeyhuntCore/gpu/batch_planner.h"
-#include "KeyhuntCore/gpu/gpu_executor.h"
+#include "ComputeCore/adapters/reference/conversions.h"
+#include "ComputeCore/adapters/reference/keyfinder_adapter.h"
+#include "ComputeCore/adapters/reference/gpu_context.h"
+#include "ComputeCore/shards/shard_walker.h"
+#include "ComputeCore/gpu/batch_planner.h"
+#include "ComputeCore/gpu/gpu_executor.h"
 #include "puzzle71_kernel.h"
 #include "models/target_constants.h"
 #include "crypto/secp256k1_adapter.h"
@@ -577,7 +577,7 @@ void Puzzle71Solver::Run() {
         std::cout << "[super] Computing target hash from address: " << options_.target_address << std::endl;
         // TODO: Need to decode Base58 address to get Hash160
         // For now, throw error to indicate this needs implementation
-        // Use Base58::toHash160 to decode any Bitcoin address
+        // Use Base58::toHash160 to decode target address
         if(!Base58::isBase58(options_.target_address)) {
             throw std::runtime_error("Invalid Base58 address: " + options_.target_address);
         }
@@ -631,8 +631,8 @@ void Puzzle71Solver::Run() {
         core::UInt256 x = UInt256FromBytes(uncompressed + 1, 32);
         core::UInt256 y = UInt256FromBytes(uncompressed + 33, 32);
 
-        secp256k1::ecpoint point(::bitcrack_adapter::ToBitCrack(x),
-                                 ::bitcrack_adapter::ToBitCrack(y));
+        secp256k1::ecpoint point(::reference_adapter::ToReferenceFormat(x),
+                                 ::reference_adapter::ToReferenceFormat(y));
 
         unsigned int digest_words[5];
         Hash::hashPublicKeyCompressed(point, digest_words);
@@ -815,7 +815,7 @@ void Puzzle71Solver::Run() {
 
     auto wall_start = std::chrono::steady_clock::now();
 
-    std::cout << "[info] Starting GPU scan" << std::endl;
+    std::cout << "[info] Starting GPU traversal" << std::endl;
     bool target_found = false;
 
     for (const auto& shard : schedule) {
@@ -824,7 +824,7 @@ void Puzzle71Solver::Run() {
         DebugLog(options_, "[debug] Created " + std::to_string(partitions.size()) + " partition(s)");
         for (const auto& partition : partitions) {
                 DebugLog(options_, "[debug] Partition [" + partition.start.ToHex() + " : " + partition.end.ToHex() + "]");
-                auto context = puzzle71::bitcrack_adapter::BuildGpuContext(partition,
+                auto context = puzzle71::reference_adapter::BuildGpuContext(partition,
                                                                            target_hash,
                                                                            /*compressed=*/true,
                                                                            options_.verbose);
@@ -959,8 +959,8 @@ void Puzzle71Solver::Run() {
                           << std::endl;
 
                 for (const auto& candidate : gpu_results) {
-                    auto secp_point_x = ::bitcrack_adapter::ToBitCrack(candidate.x);
-                    auto secp_point_y = ::bitcrack_adapter::ToBitCrack(candidate.y);
+                    auto secp_point_x = ::reference_adapter::ToReferenceFormat(candidate.x);
+                    auto secp_point_y = ::reference_adapter::ToReferenceFormat(candidate.y);
                     secp256k1::ecpoint point(secp_point_x, secp_point_y);
 
                     std::array<std::uint32_t, kDigestWordCount> digest{};
@@ -997,8 +997,8 @@ void Puzzle71Solver::Run() {
                         throw std::runtime_error("bitcoin-core/secp256k1 parity unavailable; rebuild with SECP256K1_AVAILABLE=ON");
                     }
 
-                    auto expect_x = ::bitcrack_adapter::UInt256ToBytes(candidate.x);
-                    auto expect_y = ::bitcrack_adapter::UInt256ToBytes(candidate.y);
+                    auto expect_x = ::reference_adapter::UInt256ToBytes(candidate.x);
+                    auto expect_y = ::reference_adapter::UInt256ToBytes(candidate.y);
                     bool pubkey_match = std::equal(expect_x.begin(), expect_x.end(), derived->uncompressed.begin() + 1) &&
                                         std::equal(expect_y.begin(), expect_y.end(), derived->uncompressed.begin() + 33);
                     if (!pubkey_match) {
@@ -1016,7 +1016,7 @@ void Puzzle71Solver::Run() {
                     AppendLuckEntry(private_key_hex, address);
 
                     target_found = true;
-                    goto finalize_scan;
+                    goto finalize_traversal;
                 }
 
                 puzzle71::telemetry::TelemetryOptions telemetry_opts{};
@@ -1130,7 +1130,7 @@ void Puzzle71Solver::Run() {
         }
     }
 
-finalize_scan:
+finalize_traversal:
     if (checkpoint_writer) {
         checkpoint_writer->Shutdown();
     }

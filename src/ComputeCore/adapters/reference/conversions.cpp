@@ -1,8 +1,8 @@
-#include "KeyhuntCore/adapters/bitcrack/conversions.h"
+#include "ComputeCore/adapters/reference/conversions.h"
 
-namespace bitcrack_adapter {
+namespace reference_adapter {
 
-secp256k1::uint256 ToBitCrack(const puzzle71::core::UInt256& value) {
+secp256k1::uint256 ToReferenceFormat(const puzzle71::core::UInt256& value) {
     unsigned int words[8];
     for (std::size_t i = 0; i < 4; ++i) {
         std::uint64_t limb = value.limbs[i];
@@ -12,7 +12,7 @@ secp256k1::uint256 ToBitCrack(const puzzle71::core::UInt256& value) {
     return secp256k1::uint256(words, secp256k1::uint256::LittleEndian);
 }
 
-puzzle71::core::UInt256 FromBitCrack(const secp256k1::uint256& value) {
+puzzle71::core::UInt256 FromReferenceFormat(const secp256k1::uint256& value) {
     unsigned int words[8];
     value.exportWords(words, 8, secp256k1::uint256::LittleEndian);
     puzzle71::core::UInt256 out = puzzle71::core::UInt256::Zero();
@@ -35,4 +35,4 @@ std::array<unsigned char, 32> UInt256ToBytes(const puzzle71::core::UInt256& valu
     return out;
 }
 
-}  // namespace bitcrack_adapter
+}  // namespace reference_adapter

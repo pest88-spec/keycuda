@@ -45,12 +45,12 @@ set(PUZZLE71_CORE_SOURCES
   src/services/device_metrics.cpp
   src/config/puzzle71_config.cpp
   src/crypto/secp256k1_adapter.cpp
-  src/KeyhuntCore/adapters/bitcrack/gpu_context.cpp
-  src/KeyhuntCore/shards/shard_walker.cpp
-  src/KeyhuntCore/gpu/batch_planner.cpp
-  src/KeyhuntCore/gpu/gpu_executor.cpp
-  src/KeyhuntCore/gpu/device_buffers.cpp
-  src/KeyhuntCore/adapters/bitcrack/conversions.cpp
+  src/ComputeCore/adapters/reference/gpu_context.cpp
+  src/ComputeCore/shards/shard_walker.cpp
+  src/ComputeCore/gpu/batch_planner.cpp
+  src/ComputeCore/gpu/gpu_executor.cpp
+  src/ComputeCore/gpu/device_buffers.cpp
+  src/ComputeCore/adapters/reference/conversions.cpp
 )
 
 add_executable(Puzzle71Solver ${PUZZLE71_CORE_SOURCES})

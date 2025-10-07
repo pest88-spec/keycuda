@@ -1540,7 +1540,7 @@ int main(int argc, char** argv) {
     
     app.add_option("--keyspace", keyspace, "Key range (start:end)")
         ->required();
-    app.add_option("--target-address", target_address, "Target Bitcoin address")
+    app.add_option("--target-address", target_address, "Target address")
         ->required();
     app.add_option("--operator-id", operator_id, "Operator identifier")
         ->required();
