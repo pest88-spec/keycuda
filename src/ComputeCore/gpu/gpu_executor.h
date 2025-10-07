@@ -60,6 +60,11 @@ private:
 
     CudaDeviceKeys device_keys_;
     bool verbose_{false};
+
+    // Asynchronous memory transfer optimization
+    cudaStream_t compute_stream_;
+    cudaStream_t transfer_stream_;
+    bool streams_initialized_{false};
     BatchConfig last_config_{};
     bool gpu_initialized_{false};
     core::UInt256 expected_next_scalar_;
@@ -71,6 +76,14 @@ private:
                               dim3 block);
 
     void PrepareResultBuffers(std::size_t capacity);
+
+    // Asynchronous memory transfer methods
+    void InitializeStreams();
+    void CleanupStreams();
+    void InitializeDeviceKeysAsync(const std::vector<secp256k1::uint256>& scalars,
+                                   int points_per_thread,
+                                   dim3 grid,
+                                   dim3 block);
 };
 
 }  // namespace puzzle71::gpu

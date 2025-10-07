@@ -1,4 +1,4 @@
-cmake_minimum_required(VERSION 3.24)
+cmake_minimum_required(VERSION 3.22)
 
 project(Puzzle71Solver VERSION 0.1.0 LANGUAGES CXX CUDA)
 
@@ -20,18 +20,28 @@ if(NOT CMAKE_BUILD_TYPE)
   set(CMAKE_BUILD_TYPE RelWithDebInfo CACHE STRING "Build type" FORCE)
 endif()
 
+# C++ compile options
 add_compile_options(
   "$<$<COMPILE_LANGUAGE:CXX>:-Wall>"
   "$<$<COMPILE_LANGUAGE:CXX>:-Wextra>"
   "$<$<COMPILE_LANGUAGE:CXX>:-Wpedantic>"
   "$<$<COMPILE_LANGUAGE:CXX>:-fno-omit-frame-pointer>"
+)
+
+# CUDA compile options
+add_compile_options(
   "$<$<COMPILE_LANGUAGE:CUDA>:-Xcompiler=-fno-omit-frame-pointer>"
   "$<$<COMPILE_LANGUAGE:CUDA>:--expt-relaxed-constexpr>"
   "$<$<COMPILE_LANGUAGE:CUDA>:-lineinfo>"
+  # Basic performance optimizations
+  "$<$<COMPILE_LANGUAGE:CUDA>:-use_fast_math>"
+  "$<$<COMPILE_LANGUAGE:CUDA>:-ftz=true>"
+  "$<$<COMPILE_LANGUAGE:CUDA>:-prec-div=false>"
+  "$<$<COMPILE_LANGUAGE:CUDA>:-prec-sqrt=false>"
+  "$<$<COMPILE_LANGUAGE:CUDA>:-fmad=true>"
 )
 
 set(PUZZLE71_CORE_SOURCES
-  src/main.cpp
   src/solver.cpp
   src/puzzle71_kernel.cu
   src/core/uint256.cpp
@@ -53,12 +63,33 @@ set(PUZZLE71_CORE_SOURCES
   src/ComputeCore/adapters/reference/conversions.cpp
 )
 
-add_executable(Puzzle71Solver ${PUZZLE71_CORE_SOURCES})
-set_target_properties(Puzzle71Solver PROPERTIES ENABLE_EXPORTS ON)
+set(PUZZLE71_MAIN_SOURCE src/main.cpp)
+
+set(BITCRACK_SOURCES
+  src/extracted/bitcrack/CudaKeySearchDevice/CudaAtomicList.cu
+  src/extracted/bitcrack/CudaKeySearchDevice/CudaDeviceKeys.cu
+  src/extracted/bitcrack/CudaKeySearchDevice/CudaHashLookup.cu
+  src/extracted/bitcrack/CudaKeySearchDevice/cudabridge.cu
+  src/extracted/bitcrack/CudaKeySearchDevice/CudaKeySearchDevice.cu
+  src/extracted/bitcrack/CudaKeySearchDevice/CudaKeySearchDevice.cpp
+  src/extracted/bitcrack/cudaUtil/cudaUtil.cpp
+  src/extracted/bitcrack/AddressUtil/Base58.cpp
+  src/extracted/bitcrack/AddressUtil/hash.cpp
+  src/extracted/bitcrack/CryptoUtil/hash.cpp
+  src/extracted/bitcrack/CryptoUtil/ripemd160.cpp
+  src/extracted/bitcrack/CryptoUtil/sha256.cpp
+  src/extracted/bitcrack/CryptoUtil/Rng.cpp
+  src/extracted/bitcrack/util/util.cpp
+  src/extracted/bitcrack/Logger/Logger.cpp
+  src/extracted/bitcrack/secp256k1lib/secp256k1.cpp
+)
+
+# Build shared core library for solver and tests
+add_library(puzzle71_core STATIC ${PUZZLE71_CORE_SOURCES} ${BITCRACK_SOURCES})
 
 # Find CUDA and add include directories for both .cu and .cpp files
 find_package(CUDAToolkit REQUIRED)
-target_include_directories(Puzzle71Solver PRIVATE
+target_include_directories(puzzle71_core PUBLIC
   ${CUDAToolkit_INCLUDE_DIRS}
   src
   src/models
@@ -80,54 +111,63 @@ target_include_directories(Puzzle71Solver PRIVATE
   src/extracted/bitcrack/Logger
   src/extracted/bitcrack/secp256k1lib
 )
-target_link_libraries(Puzzle71Solver PRIVATE CUDA::cudart)
+target_link_libraries(puzzle71_core PUBLIC CUDA::cudart)
 
 if(SECP256K1_AVAILABLE)
-  target_compile_definitions(Puzzle71Solver PRIVATE SECP256K1_AVAILABLE=1)
+  target_compile_definitions(puzzle71_core PUBLIC SECP256K1_AVAILABLE=1)
   set(SECP256K1_BUILD_TESTS OFF CACHE BOOL "" FORCE)
   set(SECP256K1_BUILD_BENCHMARK OFF CACHE BOOL "" FORCE)
   set(SECP256K1_BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
   add_subdirectory(third_party/bitcoin-core-secp256k1)
-  target_link_libraries(Puzzle71Solver PRIVATE secp256k1)
+  target_link_libraries(puzzle71_core PUBLIC secp256k1)
 else()
-  target_compile_definitions(Puzzle71Solver PRIVATE SECP256K1_AVAILABLE=0)
+  target_compile_definitions(puzzle71_core PUBLIC SECP256K1_AVAILABLE=0)
 endif()
-
-set_target_properties(Puzzle71Solver PROPERTIES CUDA_ARCHITECTURES "75;86;89;90")
+set_target_properties(puzzle71_core PROPERTIES CUDA_ARCHITECTURES "75;86;89;90")
 
 # Link dependencies (order matters: CUDA runtime must be linked before OpenSSL)
 find_package(OpenSSL REQUIRED)
-target_link_libraries(Puzzle71Solver PRIVATE
+target_link_libraries(puzzle71_core PUBLIC
   OpenSSL::SSL
   OpenSSL::Crypto
   nlohmann_json::nlohmann_json
 )
 
-set(BITCRACK_SOURCES
-  src/extracted/bitcrack/CudaKeySearchDevice/CudaAtomicList.cu
-  src/extracted/bitcrack/CudaKeySearchDevice/CudaDeviceKeys.cu
-  src/extracted/bitcrack/CudaKeySearchDevice/CudaHashLookup.cu
-  src/extracted/bitcrack/CudaKeySearchDevice/cudabridge.cu
-  src/extracted/bitcrack/CudaKeySearchDevice/CudaKeySearchDevice.cu
-  src/extracted/bitcrack/CudaKeySearchDevice/CudaKeySearchDevice.cpp
-  src/extracted/bitcrack/cudaUtil/cudaUtil.cpp
-  src/extracted/bitcrack/AddressUtil/Base58.cpp
-  src/extracted/bitcrack/AddressUtil/hash.cpp
-  src/extracted/bitcrack/CryptoUtil/hash.cpp
-  src/extracted/bitcrack/CryptoUtil/ripemd160.cpp
-  src/extracted/bitcrack/CryptoUtil/sha256.cpp
-  src/extracted/bitcrack/CryptoUtil/Rng.cpp
-  src/extracted/bitcrack/util/util.cpp
-  src/extracted/bitcrack/Logger/Logger.cpp
-  src/extracted/bitcrack/secp256k1lib/secp256k1.cpp
-)
-
-target_sources(Puzzle71Solver PRIVATE ${BITCRACK_SOURCES})
-
 # Suppress warnings for extracted BitCrack code (preserve original behavior)
 set_source_files_properties(${BITCRACK_SOURCES} PROPERTIES
   COMPILE_FLAGS "-w"  # Disable all warnings for extracted code
 )
+
+set(PUZZLE71_TEST_SUPPORT_SOURCES
+  src/checkpoint_manifest.cpp
+  src/utils/digest_verifier.cpp
+  src/utils/checkpoint_crypto.cpp
+  src/utils/telemetry_logger.cpp
+  src/utils/prometheus_exporter.cpp
+)
+
+add_library(puzzle71_test_support STATIC ${PUZZLE71_TEST_SUPPORT_SOURCES})
+target_include_directories(puzzle71_test_support PUBLIC
+  ${CUDAToolkit_INCLUDE_DIRS}
+  src
+  src/utils
+  src/config
+  src/services
+)
+target_link_libraries(puzzle71_test_support PUBLIC
+  CUDA::cudart
+  OpenSSL::SSL
+  OpenSSL::Crypto
+  nlohmann_json::nlohmann_json
+)
+
+if(TARGET secp256k1)
+  target_link_libraries(puzzle71_test_support PUBLIC secp256k1)
+endif()
+
+add_executable(Puzzle71Solver ${PUZZLE71_MAIN_SOURCE})
+set_target_properties(Puzzle71Solver PROPERTIES ENABLE_EXPORTS ON)
+target_link_libraries(Puzzle71Solver PRIVATE puzzle71_core)
 
 # Enable testing / GoogleTest via FetchContent
 include(FetchContent)
@@ -148,16 +188,7 @@ enable_testing()
 file(GLOB_RECURSE PUZZLE71_TEST_SOURCES CONFIGURE_DEPENDS tests/*.cpp tests/*.cu)
 if(PUZZLE71_TEST_SOURCES)
   add_executable(puzzle71_tests ${PUZZLE71_TEST_SOURCES})
-  target_link_libraries(puzzle71_tests PRIVATE GTest::gtest_main GTest::gmock_main Puzzle71Solver)
-  target_link_libraries(puzzle71_tests PRIVATE
-    OpenSSL::SSL
-    OpenSSL::Crypto
-    nlohmann_json::nlohmann_json
-    CUDA::cudart
-  )
-  if(TARGET secp256k1)
-    target_link_libraries(puzzle71_tests PRIVATE secp256k1)
-  endif()
+  target_link_libraries(puzzle71_tests PRIVATE GTest::gtest_main GTest::gmock_main puzzle71_test_support)
   target_compile_definitions(puzzle71_tests PRIVATE PUZZLE71_TESTING=1)
   target_include_directories(puzzle71_tests PRIVATE
     src

@@ -37,6 +37,7 @@ private:
     int points_per_thread_{1};
     std::size_t slots_{0};
     std::vector<core::UInt256> host_scalars_;
+    std::vector<core::UInt256> batch_scalars_; // Reusable batch buffer
 };
 
 }  // namespace puzzle71::gpu

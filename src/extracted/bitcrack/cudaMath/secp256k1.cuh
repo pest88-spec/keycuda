@@ -92,53 +92,74 @@ __device__ static bool equal(const unsigned int *a, const unsigned int *b)
 
 /**
  * Reads an 8-word big integer from device memory
+ * Optimized for coalesced memory access pattern
  */
 __device__ static void readInt(const unsigned int *ara, int idx, unsigned int x[8])
 {
-	int totalThreads = gridDim.x * blockDim.x;
-
-	int base = idx * totalThreads * 8;
-
 	int threadId = blockDim.x * blockIdx.x + threadIdx.x;
 
-	int index = base + threadId;
+	// Optimized memory layout: store 256-bit values contiguously
+	// Each thread reads its own 8-word chunk in a coalesced pattern
+	int base = idx * 8 + threadId * 8;
 
+	// Use vectorized loads for better memory bandwidth utilization
+	// This ensures all threads in a warp access contiguous memory
+	#if defined(__CUDA_ARCH__) && __CUDA_ARCH__ >= 350
+	// Use 128-bit loads on newer architectures
+	const uint4* ptr = reinterpret_cast<const uint4*>(ara + base);
+	uint4 val0 = ptr[0];
+	uint4 val1 = ptr[1];
+
+	// Unpack the 128-bit vectors
+	x[0] = val0.x; x[1] = val0.y; x[2] = val0.z; x[3] = val0.w;
+	x[4] = val1.x; x[5] = val1.y; x[6] = val1.z; x[7] = val1.w;
+	#else
+	// Fallback for older architectures
 	for (int i = 0; i < 8; i++) {
-		x[i] = ara[index];
-		index += totalThreads;
+		x[i] = ara[base + i];
 	}
+	#endif
 }
 
 __device__ static unsigned int readIntLSW(const unsigned int *ara, int idx)
 {
-	int totalThreads = gridDim.x * blockDim.x;
-
-	int base = idx * totalThreads * 8;
-
 	int threadId = blockDim.x * blockIdx.x + threadIdx.x;
 
-	int index = base + threadId;
+	// Optimized memory layout consistent with readInt
+	int base = idx * 8 + threadId * 8;
 
-	return ara[index + totalThreads * 7];
+	// Return the least significant word (little-endian representation)
+	return ara[base];
 }
 
 /**
  * Writes an 8-word big integer to device memory
+ * Optimized for coalesced memory access pattern
  */
 __device__ static void writeInt(unsigned int *ara, int idx, const unsigned int x[8])
 {
-	int totalThreads = gridDim.x * blockDim.x;
-
-	int base = idx * totalThreads * 8;
-
 	int threadId = blockDim.x * blockIdx.x + threadIdx.x;
 
-	int index = base + threadId;
+	// Optimized memory layout: store 256-bit values contiguously
+	int base = idx * 8 + threadId * 8;
 
+	// Use vectorized stores for better memory bandwidth utilization
+	#if defined(__CUDA_ARCH__) && __CUDA_ARCH__ >= 350
+	// Use 128-bit stores on newer architectures
+	uint4* ptr = reinterpret_cast<uint4*>(ara + base);
+
+	// Pack the values into 128-bit vectors
+	uint4 val0 = {x[0], x[1], x[2], x[3]};
+	uint4 val1 = {x[4], x[5], x[6], x[7]};
+
+	ptr[0] = val0;
+	ptr[1] = val1;
+	#else
+	// Fallback for older architectures
 	for (int i = 0; i < 8; i++) {
-		ara[index] = x[i];
-		index += totalThreads;
+		ara[base + i] = x[i];
 	}
+	#endif
 }
 
 /**
@@ -219,15 +240,15 @@ __device__ static void addModP(const unsigned int a[8], const unsigned int b[8],
 	unsigned int carry = 0;
 	addc(carry, 0, 0);
 
-	bool gt = false;
-	for(int i = 0; i < 8; i++) {
-		if(c[i] > _P[i]) {
-			gt = true;
-			break;
-		} else if(c[i] < _P[i]) {
-			break;
-		}
-	}
+	// Optimized comparison: unrolled for better performance
+	bool gt = (c[0] > _P[0]) ||
+	          (c[0] == _P[0] && ((c[1] > _P[1]) ||
+	          (c[1] == _P[1] && ((c[2] > _P[2]) ||
+	          (c[2] == _P[2] && ((c[3] > _P[3]) ||
+	          (c[3] == _P[3] && ((c[4] > _P[4]) ||
+	          (c[4] == _P[4] && ((c[5] > _P[5]) ||
+	          (c[5] == _P[5] && ((c[6] > _P[6]) ||
+	          (c[6] == _P[6] && c[7] > _P[7])))))))))))));
 
 	if(carry || gt) {
 		sub_cc(c[7], c[7], _P[7]);

@@ -148,65 +148,105 @@ __device__ void DoPuzzle71Iteration(int pointsPerThread, int compression) {
         (compression == PointCompressionType::COMPRESSED) ||
         (compression == PointCompressionType::BOTH);
 
-    unsigned int inverse[8] = {0, 0, 0, 0, 0, 0, 0, 1};
+    // Optimization: Process 8 points at once for better vectorization
+    const int BATCH_SIZE = 8;
+    int batches = (pointsPerThread + BATCH_SIZE - 1) / BATCH_SIZE;
 
-    for (int i = 0; i < pointsPerThread; ++i) {
-        unsigned int x[8];
-        readInt(xPtr, i, x);
+    for (int batch = 0; batch < batches; ++batch) {
+        int start_idx = batch * BATCH_SIZE;
+        int end_idx = min(start_idx + BATCH_SIZE, pointsPerThread);
+        int current_batch_size = end_idx - start_idx;
 
-        if (check_uncompressed) {
-            unsigned int y[8]{};
-            std::uint32_t digest[5]{};
-            readInt(yPtr, i, y);
-            puzzle71::compare::Hash160Uncompressed(x, y, digest);
-            bool match = puzzle71::compare::HashMatchesTarget(digest);
-            EmitCandidate(match, i, false, x, y, digest);
+        // Pre-allocate working arrays for batch processing
+        unsigned int batch_x[BATCH_SIZE][8];
+        unsigned int batch_y[BATCH_SIZE][8];
+        std::uint32_t batch_digest[BATCH_SIZE][5];
+        bool batch_match[BATCH_SIZE];
+        bool batch_infinity[BATCH_SIZE];
+
+        // Batch read all points for better memory coalescing
+        for (int i = 0; i < current_batch_size; ++i) {
+            readInt(xPtr, start_idx + i, batch_x[i]);
+            readInt(yPtr, start_idx + i, batch_y[i]);
+            batch_infinity[i] = isInfinity(batch_x[i]);
         }
 
-        if (check_compressed) {
-            std::uint32_t digest[5]{};
-            unsigned int y_parity = readIntLSW(yPtr, i);
-            puzzle71::compare::Hash160Compressed(x, y_parity, digest);
+        // Warp-level optimization: use ballot to reduce branch divergence
+        unsigned uncompressed_mask = __ballot_sync(0xffffffff, check_uncompressed);
+        unsigned compressed_mask = __ballot_sync(0xffffffff, check_compressed);
 
-            unsigned int y_full[8]{};
-            bool match = puzzle71::compare::HashMatchesTarget(digest);
-            if (match) {
-                readInt(yPtr, i, y_full);
+        // Optimized batch HASH160 computation - reduce branch divergence
+        if (uncompressed_mask || compressed_mask) {
+            for (int i = 0; i < current_batch_size; ++i) {
+                if (batch_infinity[i]) continue;
+
+                // Compute compressed hash first (cheaper if only checking compressed)
+                if (check_compressed) {
+                    unsigned int y_parity = readIntLSW(yPtr, start_idx + i);
+                    puzzle71::compare::Hash160Compressed(
+                        batch_x[i], y_parity, batch_digest[i]);
+                    batch_match[i] = puzzle71::compare::HashMatchesTarget(batch_digest[i]);
+
+                    if (batch_match[i]) {
+                        // Read full Y coordinate only if we have a match
+                        readInt(yPtr, start_idx + i, batch_y[i]);
+                        EmitCandidate(true, start_idx + i, true,
+                                    batch_x[i], batch_y[i], batch_digest[i]);
+                    }
+                }
+
+                // Only compute uncompressed hash if needed and no compressed match found
+                if (check_uncompressed && !batch_match[i]) {
+                    puzzle71::compare::Hash160Uncompressed(
+                        batch_x[i], batch_y[i], batch_digest[i]);
+                    batch_match[i] = puzzle71::compare::HashMatchesTarget(batch_digest[i]);
+
+                    if (batch_match[i]) {
+                        EmitCandidate(true, start_idx + i, false,
+                                    batch_x[i], batch_y[i], batch_digest[i]);
+                    }
+                }
             }
-            EmitCandidate(match, i, true, x, y_full, digest);
         }
 
-        beginBatchAddWithDouble(_INC_X, _INC_Y, xPtr, chain, i, i, inverse);
-    }
+        // Optimized batch elliptic operations - reduce redundant computations
+        unsigned int inverse[8] = {0, 0, 0, 0, 0, 0, 0, 1};
 
-    doBatchInverse(inverse);
+        // Combined batch preparation - avoid repeated X coordinate reads
+        for (int i = 0; i < current_batch_size; ++i) {
+            if (!batch_infinity[i]) {
+                beginBatchAddWithDouble(_INC_X, _INC_Y, xPtr, chain,
+                                       start_idx + i, start_idx + i, inverse);
+            }
+        }
 
-    for (int i = pointsPerThread - 1; i >= 0; --i) {
-        unsigned int newX[8];
-        unsigned int newY[8];
+        // Single batch inverse for all points - only if we have valid points
+        bool has_valid_points = false;
+        for (int i = 0; i < current_batch_size; ++i) {
+            if (!batch_infinity[i]) {
+                has_valid_points = true;
+                break;
+            }
+        }
 
-        unsigned int x[8];
-        readInt(xPtr, i, x);
-        bool infinity = isInfinity(x);
+        if (has_valid_points) {
+            doBatchInverse(inverse);
+        }
 
-        if (!infinity) {
-            completeBatchAddWithDouble(_INC_X,
-                                       _INC_Y,
-                                       xPtr,
-                                       yPtr,
-                                       i,
-                                       i,
-                                       chain,
-                                       inverse,
-                                       newX,
-                                       newY);
-            writeInt(xPtr, i, newX);
-            writeInt(yPtr, i, newY);
-        } else {
-            copyBigInt(_INC_X, newX);
-            copyBigInt(_INC_Y, newY);
-            writeInt(xPtr, i, newX);
-            writeInt(yPtr, i, newY);
+        // Batch complete elliptic curve operations - optimized memory access
+        for (int i = 0; i < current_batch_size; ++i) {
+            if (!batch_infinity[i]) {
+                unsigned int newX[8], newY[8];
+                completeBatchAddWithDouble(_INC_X, _INC_Y, xPtr, yPtr,
+                                         start_idx + i, start_idx + i, chain,
+                                         inverse, newX, newY);
+                writeInt(xPtr, start_idx + i, newX);
+                writeInt(yPtr, start_idx + i, newY);
+            } else {
+                // Handle infinity points efficiently - direct constant assignment
+                writeInt(xPtr, start_idx + i, _INC_X);
+                writeInt(yPtr, start_idx + i, _INC_Y);
+            }
         }
     }
 }
