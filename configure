@@ -1,0 +1,113 @@
+#!/bin/bash
+
+# Configure script for keycuda project
+# This script prepares the build environment for CMake builds
+
+set -e
+
+echo "=== KeyCUDA Configuration Script ==="
+
+# Check dependencies
+echo "Checking dependencies..."
+
+# Check for CMake
+if ! command -v cmake &> /dev/null; then
+    echo "Error: CMake is required but not installed."
+    echo "Please install CMake (version 3.22 or later)"
+    exit 1
+fi
+
+CMAKE_VERSION=$(cmake --version | head -n1 | cut -d' ' -f3)
+echo "Found CMake version: $CMAKE_VERSION"
+
+# Check for build tools
+if ! command -v make &> /dev/null; then
+    echo "Error: make is required but not installed."
+    echo "Please install build-essential package"
+    exit 1
+fi
+
+# Check for CUDA (optional)
+if command -v nvcc &> /dev/null; then
+    CUDA_VERSION=$(nvcc --version | grep "release" | cut -d' ' -f5 | cut -d',' -f1)
+    echo "Found CUDA version: $CUDA_VERSION"
+    CUDA_AVAILABLE=1
+else
+    echo "Warning: CUDA not found. CPU-only build will be configured."
+    CUDA_AVAILABLE=0
+fi
+
+# Create build directory
+BUILD_DIR="build"
+if [ -d "$BUILD_DIR" ]; then
+    echo "Removing existing build directory..."
+    rm -rf "$BUILD_DIR"
+fi
+
+echo "Creating build directory..."
+mkdir -p "$BUILD_DIR"
+
+# Configure with CMake
+cd "$BUILD_DIR"
+
+echo "Configuring with CMake..."
+
+CMAKE_ARGS="-DCMAKE_BUILD_TYPE=Release"
+
+# Add CUDA support if available
+if [ $CUDA_AVAILABLE -eq 1 ]; then
+    CMAKE_ARGS="$CMAKE_ARGS -DENABLE_CUDA=ON"
+else
+    CMAKE_ARGS="$CMAKE_ARGS -DENABLE_CUDA=OFF"
+fi
+
+# Add additional options based on parameters
+while [[ $# -gt 0 ]]; do
+    case $1 in
+        --debug)
+            CMAKE_ARGS="-DCMAKE_BUILD_TYPE=Debug"
+            shift
+            ;;
+        --enable-tests)
+            CMAKE_ARGS="$CMAKE_ARGS -DENABLE_TESTS=ON"
+            shift
+            ;;
+        --enable-benchmarks)
+            CMAKE_ARGS="$CMAKE_ARGS -DENABLE_BENCHMARKS=ON"
+            shift
+            ;;
+        --prefix=*)
+            CMAKE_ARGS="$CMAKE_ARGS -DCMAKE_INSTALL_PREFIX=${1#*=}"
+            shift
+            ;;
+        *)
+            echo "Unknown option: $1"
+            echo "Available options:"
+            echo "  --debug              Enable debug build"
+            echo "  --enable-tests       Enable tests"
+            echo "  --enable-benchmarks  Enable benchmarks"
+            echo "  --prefix=PATH        Set installation prefix"
+            exit 1
+            ;;
+    esac
+done
+
+echo "Running: cmake $CMAKE_ARGS .."
+
+if cmake $CMAKE_ARGS ..; then
+    echo ""
+    echo "✅ Configuration completed successfully!"
+    echo ""
+    echo "Next steps:"
+    echo "  1. Run 'make' to build the project"
+    echo "  2. Run 'make test' to execute tests"
+    echo "  3. Run 'make install' to install (optional)"
+    echo ""
+    echo "Build directory: $(pwd)"
+    echo "Ready to build!"
+else
+    echo ""
+    echo "❌ Configuration failed!"
+    echo "Please check the error messages above."
+    exit 1
+fi
