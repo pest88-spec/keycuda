@@ -3,6 +3,7 @@
 
 #include <cstdlib>
 #include <filesystem>
+#include <fstream>
 #include <sstream>
 #include <string>
 
@@ -37,6 +38,45 @@ std::filesystem::path ResolveSolverBinary() {
 #endif
 }
 
+bool WriteDeterministicConfig() {
+    const auto config_dir = std::filesystem::path("config");
+    std::filesystem::create_directories(config_dir);
+    std::ofstream config(config_dir / "puzzle71.yaml");
+    if (!config) {
+        return false;
+    }
+    config << R"({
+  "project_constants": {
+    "puzzle": {
+      "target_address": "1PWo3JeB9jrGwfHDNpdGK54CRas7fsVzXU",
+      "hash160": "A6A0DDF6B2193B3CB6BE09C4797835DCBEAD1A3E"
+    }
+  },
+  "operator_defaults": {
+    "operator_id": "async-test",
+    "operator_purpose": "unit-test"
+  },
+  "replay": {
+    "grid_dim": [1, 1, 1],
+    "block_dim": [1, 1, 1],
+    "points_per_thread": 1,
+    "deterministic_seed": 424242
+  },
+  "checkpointing": {
+    "output_dir": "checkpoints",
+    "interval_keys": 512,
+    "rotation_minutes": 30
+  },
+  "telemetry": {
+    "jsonl_dir": "telemetry",
+    "prometheus_dir": "prometheus",
+    "throughput_floor_mkeys": 0,
+    "alert_latency_ms": 1000
+  }
+})";
+    return true;
+}
+
 }  // namespace
 
 TEST(AsyncCheckpointPipelineTest, WritesPayloadAndManifestFiles) {
@@ -53,6 +93,10 @@ TEST(AsyncCheckpointPipelineTest, WritesPayloadAndManifestFiles) {
     std::filesystem::remove_all(temp_root);
 
     ScopedWorkingDirectory scoped(temp_root);
+
+    ASSERT_TRUE(WriteDeterministicConfig());
+    std::filesystem::create_directories("telemetry");
+    std::filesystem::create_directories("prometheus");
 
     std::ostringstream command;
     command << '"' << solver_binary.string() << '"'

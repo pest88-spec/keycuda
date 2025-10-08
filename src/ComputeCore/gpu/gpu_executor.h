@@ -9,6 +9,13 @@
 #include "ComputeCore/gpu/performance/fused_initialization_kernel.h"
 #include "ComputeCore/gpu/performance/memory_optimizer.h"
 #include "ComputeCore/gpu/performance/bandwidth_validator.h"
+#include "ComputeCore/gpu/performance/asynchronous_stream_manager.h"
+#include "ComputeCore/gpu/performance/double_buffer_manager.h"
+#include "ComputeCore/gpu/performance/memory_coalescing_optimizer.h"
+#include "ComputeCore/gpu/performance/memory_bandwidth_profiler.h"
+#include "ComputeCore/gpu/performance/memory_pool_manager.h"
+#include "ComputeCore/gpu/performance/memory_prefetch_manager.h"
+#include "ComputeCore/gpu/performance/memory_transfer_batcher.h"
 #include "CudaKeySearchDevice/CudaDeviceKeys.h"
 #include "KeyFinderLib/KeySearchTypes.h"
 #include <memory>
@@ -104,6 +111,15 @@ private:
     std::unique_ptr<puzzle71::gpu::performance::BandwidthValidator> bandwidth_validator_;
     bool memory_optimization_enabled_{true};
     int memory_optimization_level_{2};  // 0=none, 1=basic, 2=advanced
+
+    // Phase 5 advanced memory optimization components
+    std::unique_ptr<puzzle71::gpu::performance::AsynchronousStreamManager> async_stream_manager_;
+    std::unique_ptr<puzzle71::gpu::performance::DoubleBufferManager> double_buffer_manager_;
+    std::unique_ptr<puzzle71::gpu::performance::MemoryCoalescingOptimizer> coalescing_optimizer_;
+    std::unique_ptr<puzzle71::gpu::performance::MemoryBandwidthProfiler> bandwidth_profiler_;
+    std::unique_ptr<puzzle71::gpu::performance::MemoryPoolManager> memory_pool_manager_;
+    std::unique_ptr<puzzle71::gpu::performance::MemoryPrefetchManager> prefetch_manager_;
+    std::unique_ptr<puzzle71::gpu::performance::MemoryTransferBatcher> transfer_batcher_;
 
     // Asynchronous memory transfer optimization
     cudaStream_t compute_stream_;

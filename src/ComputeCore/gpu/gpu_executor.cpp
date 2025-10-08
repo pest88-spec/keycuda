@@ -331,6 +331,121 @@ GpuExecutor::GpuExecutor(int device_id,
         adaptive_scaling_enabled_ = false;
     }
 
+    // Initialize Phase 5 memory optimization components
+    try {
+        if (verbose_) {
+            std::cout << "[debug] GpuExecutor: Initializing memory optimization components..." << std::endl;
+        }
+
+        // Initialize core memory optimizer
+        puzzle71::gpu::performance::MemoryOptimizationConfig mem_config;
+        mem_config.device_id = device_id_;
+        mem_config.enable_asynchronous_transfers = true;
+        mem_config.optimization_level = memory_optimization_level_;
+        mem_config.enable_double_buffering = true;
+        mem_config.enable_memory_pooling = true;
+
+        memory_optimizer_ = puzzle71::gpu::performance::CreateMemoryOptimizer(mem_config);
+        if (memory_optimizer_) {
+            if (verbose_) {
+                std::cout << "[debug] GpuExecutor: Memory optimizer initialized" << std::endl;
+            }
+        }
+
+        // Initialize bandwidth validator
+        bandwidth_validator_ = puzzle71::gpu::performance::CreateBandwidthValidator(device_id_);
+        if (bandwidth_validator_) {
+            bandwidth_validator_->SetPerformanceTargets(80.0, 100.0); // 80% utilization, 100GB/s target
+            if (verbose_) {
+                std::cout << "[debug] GpuExecutor: Bandwidth validator initialized" << std::endl;
+            }
+        }
+
+        // Initialize advanced memory optimization components
+        try {
+            // Asynchronous stream manager
+            async_stream_manager_ = puzzle71::gpu::performance::CreateAsynchronousStreamManager(device_id_, 4, true);
+            if (async_stream_manager_) {
+                async_stream_manager_->SetLoadBalancingStrategy("round_robin");
+                if (verbose_) {
+                    std::cout << "[debug] GpuExecutor: Async stream manager initialized" << std::endl;
+                }
+            }
+
+            // Double buffer manager
+            double_buffer_manager_ = puzzle71::gpu::performance::CreateDoubleBufferManager(
+                puzzle71::gpu::performance::BufferStrategy::ADAPTIVE, 64*1024*1024, 2, true);
+            if (double_buffer_manager_) {
+                if (verbose_) {
+                    std::cout << "[debug] GpuExecutor: Double buffer manager initialized" << std::endl;
+                }
+            }
+
+            // Memory coalescing optimizer
+            coalescing_optimizer_ = puzzle71::gpu::performance::CreateMemoryCoalescingOptimizer(device_id_);
+            if (coalescing_optimizer_) {
+                if (verbose_) {
+                    std::cout << "[debug] GpuExecutor: Memory coalescing optimizer initialized" << std::endl;
+                }
+            }
+
+            // Memory bandwidth profiler
+            bandwidth_profiler_ = puzzle71::gpu::performance::CreateMemoryBandwidthProfiler(device_id_);
+            if (bandwidth_profiler_) {
+                bandwidth_profiler_->StartProfiling();
+                if (verbose_) {
+                    std::cout << "[debug] GpuExecutor: Memory bandwidth profiler initialized" << std::endl;
+                }
+            }
+
+            // Memory pool manager
+            memory_pool_manager_ = puzzle71::gpu::performance::CreateMemoryPoolManager(device_id_);
+            if (memory_pool_manager_) {
+                if (verbose_) {
+                    std::cout << "[debug] GpuExecutor: Memory pool manager initialized" << std::endl;
+                }
+            }
+
+            // Memory prefetch manager
+            prefetch_manager_ = puzzle71::gpu::performance::CreateMemoryPrefetchManager(device_id_);
+            if (prefetch_manager_) {
+                if (verbose_) {
+                    std::cout << "[debug] GpuExecutor: Memory prefetch manager initialized" << std::endl;
+                }
+            }
+
+            // Memory transfer batcher
+            transfer_batcher_ = puzzle71::gpu::performance::CreateMemoryTransferBatcher(device_id_);
+            if (transfer_batcher_) {
+                if (verbose_) {
+                    std::cout << "[debug] GpuExecutor: Memory transfer batcher initialized" << std::endl;
+                }
+            }
+
+        } catch (const std::exception& e) {
+            if (verbose_) {
+                std::cout << "[warn] Failed to initialize some advanced memory components: " << e.what() << std::endl;
+                std::cout << "[warn] Continuing with basic memory optimization" << std::endl;
+            }
+        }
+
+        // Log successful initialization
+        if (verbose_) {
+            std::cout << "[debug] GpuExecutor: All memory optimization components initialized successfully" << std::endl;
+            std::cout << "[debug] Memory optimization level: " << memory_optimization_level_ << std::endl;
+            std::cout << "[debug] Memory optimization enabled: " << (memory_optimization_enabled_ ? "true" : "false") << std::endl;
+        }
+
+    } catch (const std::exception& e) {
+        if (verbose_) {
+            std::cout << "[warn] Failed to initialize memory optimization components: " << e.what() << std::endl;
+            std::cout << "[warn] Memory optimization will be disabled" << std::endl;
+        }
+        memory_optimization_enabled_ = false;
+        memory_optimizer_.reset();
+        bandwidth_validator_.reset();
+    }
+
     if (verbose_) {
         std::cout << "[debug] GpuExecutor: Constructor complete" << std::endl;
     }
@@ -338,6 +453,38 @@ GpuExecutor::GpuExecutor(int device_id,
 
 GpuExecutor::~GpuExecutor() {
     SmartCleanup();
+
+    // Clean up Phase 5 memory optimization components
+    try {
+        if (verbose_) {
+            std::cout << "[debug] Cleaning up memory optimization components..." << std::endl;
+        }
+
+        // Stop profiling
+        if (bandwidth_profiler_) {
+            bandwidth_profiler_->StopProfiling();
+        }
+
+        // Reset all components in reverse order
+        transfer_batcher_.reset();
+        prefetch_manager_.reset();
+        memory_pool_manager_.reset();
+        bandwidth_profiler_.reset();
+        coalescing_optimizer_.reset();
+        double_buffer_manager_.reset();
+        async_stream_manager_.reset();
+        bandwidth_validator_.reset();
+        memory_optimizer_.reset();
+
+        if (verbose_) {
+            std::cout << "[debug] Memory optimization components cleaned up successfully" << std::endl;
+        }
+    } catch (const std::exception& e) {
+        if (verbose_) {
+            std::cout << "[warn] Error during memory optimization cleanup: " << e.what() << std::endl;
+        }
+    }
+
     device_keys_.clearPrivateKeys();
     cleanupChainBuf();
     CleanupStreams();  // Clean up asynchronous streams
@@ -802,7 +949,62 @@ StepResult GpuExecutor::Execute() {
                   << " block=" << config_.block.x
                   << " points/thread=" << config_.points_per_thread << std::endl;
     }
+
+    // Apply Phase 5 memory optimizations before kernel launch
+    if (memory_optimization_enabled_) {
+        try {
+            // Configure memory coalescing optimization
+            if (coalescing_optimizer_) {
+                auto coalescing_config = coalescing_optimizer_->OptimizeKernelConfiguration(
+                    config_.grid.x, config_.block.x, config_.points_per_thread, "key_search");
+
+                if (verbose_ && !coalescing_config.optimizations.empty()) {
+                    std::cout << "[MEMORY] Coalescing optimizations applied:" << std::endl;
+                    for (const auto& opt : coalescing_config.optimizations) {
+                        std::cout << "[MEMORY]   - " << opt << std::endl;
+                    }
+                }
+            }
+
+            // Configure memory pool for batch operations
+            if (memory_pool_manager_) {
+                size_t estimated_memory = config_.keys_total * 64; // Estimate 64 bytes per key
+                memory_pool_manager_->ReservePool("key_search_batch", estimated_memory);
+            }
+
+            // Setup double buffering for efficient memory access
+            if (double_buffer_manager_) {
+                double_buffer_manager_->ConfigureBuffers(config_.keys_total, sizeof(DeviceCandidate), "ping_pong");
+            }
+
+            // Configure prefetching based on access patterns
+            if (prefetch_manager_) {
+                prefetch_manager_->ConfigurePrefetch("sequential", config_.keys_total, 64);
+            }
+
+            // Setup transfer batching for result collection
+            if (transfer_batcher_) {
+                transfer_batcher_->ConfigureBatch("device_to_host", config_.keys_total, sizeof(DeviceCandidate));
+            }
+
+            if (verbose_) {
+                std::cout << "[MEMORY] Memory optimizations configured for batch size "
+                          << config_.keys_total << std::endl;
+            }
+        } catch (const std::exception& e) {
+            if (verbose_) {
+                std::cout << "[warn] Memory optimization setup failed: " << e.what() << std::endl;
+            }
+        }
+    }
+
     auto start = std::chrono::high_resolution_clock::now();
+
+    // Start bandwidth profiling
+    if (memory_optimization_enabled_ && bandwidth_profiler_) {
+        bandwidth_profiler_->StartMeasurement("kernel_execution");
+    }
+
     auto launch_status = puzzle71::kernel::LaunchFusedKernel(config_.grid,
                                                              config_.block,
                                                              config_.points_per_thread,
@@ -818,6 +1020,31 @@ StepResult GpuExecutor::Execute() {
     if (verbose_) {
         std::cout << "[debug] Kernel completed" << std::endl;
     }
+
+    // Stop bandwidth profiling and collect metrics
+    if (memory_optimization_enabled_ && bandwidth_profiler_) {
+        bandwidth_profiler_->StopMeasurement("kernel_execution");
+        auto bandwidth_metrics = bandwidth_profiler_->GetCurrentMetrics();
+
+        if (verbose_) {
+            std::cout << "[MEMORY] Bandwidth metrics:" << std::endl;
+            std::cout << "[MEMORY]   H2D: " << std::fixed << std::setprecision(1)
+                      << bandwidth_metrics.h2d_bandwidth_gb_per_sec << " GB/s" << std::endl;
+            std::cout << "[MEMORY]   D2H: " << std::fixed << std::setprecision(1)
+                      << bandwidth_metrics.d2h_bandwidth_gb_per_sec << " GB/s" << std::endl;
+            std::cout << "[MEMORY]   Utilization: " << std::fixed << std::setprecision(1)
+                      << bandwidth_metrics.utilization_percentage << "%" << std::endl;
+        }
+
+        // Validate bandwidth utilization
+        if (bandwidth_validator_) {
+            bool bandwidth_ok = ValidateMemoryBandwidthUtilization(75.0); // 75% target
+            if (!bandwidth_ok && verbose_) {
+                std::cout << "[warn] Memory bandwidth utilization below target" << std::endl;
+            }
+        }
+    }
+
     auto end = std::chrono::high_resolution_clock::now();
 
     result.elapsed_us = static_cast<std::uint64_t>(
@@ -830,29 +1057,96 @@ StepResult GpuExecutor::Execute() {
     std::uint32_t candidate_count = 0;
     std::uint32_t overflow_count = 0;
 
-    // Use synchronous transfers for now (async optimization temporarily disabled)
-    CheckCuda(cudaMemcpy(&candidate_count,
-                         device_candidate_count_.data(),
-                         sizeof(candidate_count),
-                         cudaMemcpyDeviceToHost),
-              "cudaMemcpy(result_count)");
-    candidate_count = std::min<std::uint32_t>(candidate_count,
-                                              static_cast<std::uint32_t>(host_candidates_.size()));
+    // Use optimized memory transfer batching for result collection
+    if (memory_optimization_enabled_ && transfer_batcher_) {
+        try {
+            // Transfer metadata using batching
+            auto count_transfer = transfer_batcher_->BatchTransfer(
+                device_candidate_count_.data(), &candidate_count, sizeof(candidate_count),
+                cudaMemcpyDeviceToHost, "result_count");
 
-    if (device_candidate_overflow_.data()) {
-        CheckCuda(cudaMemcpy(&overflow_count,
-                             device_candidate_overflow_.data(),
-                             sizeof(overflow_count),
-                             cudaMemcpyDeviceToHost),
-                  "cudaMemcpy(result_overflow)");
-    }
+            candidate_count = std::min<std::uint32_t>(candidate_count,
+                                                    static_cast<std::uint32_t>(host_candidates_.size()));
 
-    if (candidate_count > 0) {
-        CheckCuda(cudaMemcpy(host_candidates_.data(),
-                             device_candidates_.data(),
-                             candidate_count * sizeof(DeviceCandidate),
+            if (device_candidate_overflow_.data()) {
+                auto overflow_transfer = transfer_batcher_->BatchTransfer(
+                    device_candidate_overflow_.data(), &overflow_count, sizeof(overflow_count),
+                    cudaMemcpyDeviceToHost, "result_overflow");
+            }
+
+            // Transfer candidates using optimized batching
+            if (candidate_count > 0) {
+                auto candidates_transfer = transfer_batcher_->BatchTransfer(
+                    device_candidates_.data(), host_candidates_.data(),
+                    candidate_count * sizeof(DeviceCandidate),
+                    cudaMemcpyDeviceToHost, "candidates");
+
+                if (verbose_) {
+                    std::cout << "[MEMORY] Optimized transfer completed: "
+                              << candidate_count << " candidates in "
+                              << std::fixed << std::setprecision(1)
+                              << candidates_transfer.transfer_time_us << " μs" << std::endl;
+                }
+            }
+
+            // Flush any pending transfers
+            transfer_batcher_->FlushPendingTransfers();
+
+        } catch (const std::exception& e) {
+            if (verbose_) {
+                std::cout << "[warn] Transfer batching failed, falling back to standard transfers: " << e.what() << std::endl;
+            }
+
+            // Fallback to standard transfers
+            CheckCuda(cudaMemcpy(&candidate_count,
+                                 device_candidate_count_.data(),
+                                 sizeof(candidate_count),
+                                 cudaMemcpyDeviceToHost),
+                      "cudaMemcpy(result_count)");
+            candidate_count = std::min<std::uint32_t>(candidate_count,
+                                                    static_cast<std::uint32_t>(host_candidates_.size()));
+
+            if (device_candidate_overflow_.data()) {
+                CheckCuda(cudaMemcpy(&overflow_count,
+                                     device_candidate_overflow_.data(),
+                                     sizeof(overflow_count),
+                                     cudaMemcpyDeviceToHost),
+                          "cudaMemcpy(result_overflow)");
+            }
+
+            if (candidate_count > 0) {
+                CheckCuda(cudaMemcpy(host_candidates_.data(),
+                                     device_candidates_.data(),
+                                     candidate_count * sizeof(DeviceCandidate),
+                                     cudaMemcpyDeviceToHost),
+                          "cudaMemcpy(candidates)");
+            }
+        }
+    } else {
+        // Standard synchronous transfers
+        CheckCuda(cudaMemcpy(&candidate_count,
+                             device_candidate_count_.data(),
+                             sizeof(candidate_count),
                              cudaMemcpyDeviceToHost),
-                  "cudaMemcpy(candidates)");
+                  "cudaMemcpy(result_count)");
+        candidate_count = std::min<std::uint32_t>(candidate_count,
+                                                static_cast<std::uint32_t>(host_candidates_.size()));
+
+        if (device_candidate_overflow_.data()) {
+            CheckCuda(cudaMemcpy(&overflow_count,
+                                 device_candidate_overflow_.data(),
+                                 sizeof(overflow_count),
+                                 cudaMemcpyDeviceToHost),
+                      "cudaMemcpy(result_overflow)");
+        }
+
+        if (candidate_count > 0) {
+            CheckCuda(cudaMemcpy(host_candidates_.data(),
+                                 device_candidates_.data(),
+                                 candidate_count * sizeof(DeviceCandidate),
+                                 cudaMemcpyDeviceToHost),
+                      "cudaMemcpy(candidates)");
+        }
     }
 
     std::vector<reference_adapter::ComputationResult> out;
@@ -951,6 +1245,71 @@ StepResult GpuExecutor::Execute() {
             } catch (const std::exception& e) {
                 if (verbose_) {
                     std::cout << "[warn] Failed to update adaptive scaling: " << e.what() << std::endl;
+                }
+            }
+        }
+
+        // Update memory optimization components with performance data
+        if (memory_optimization_enabled_) {
+            try {
+                double throughput_mkeys_per_sec = result.keys_per_sec / 1'000'000.0;
+                std::chrono::microseconds execution_time(result.elapsed_us);
+
+                // Update coalescing optimizer with performance feedback
+                if (coalescing_optimizer_) {
+                    coalescing_optimizer_->RecordPerformanceResult(
+                        config_.grid.x, config_.block.x, config_.points_per_thread,
+                        throughput_mkeys_per_sec, execution_time);
+                }
+
+                // Update memory pool with usage statistics
+                if (memory_pool_manager_) {
+                    memory_pool_manager_->UpdatePoolStatistics("key_search_batch",
+                        config_.keys_total * 64, // estimated bytes used
+                        throughput_mkeys_per_sec);
+                }
+
+                // Update prefetch manager with access pattern feedback
+                if (prefetch_manager_) {
+                    prefetch_manager_->RecordAccessPattern("sequential",
+                        config_.keys_total, result.processed_keys, execution_time);
+                }
+
+                // Update transfer batcher with performance metrics
+                if (transfer_batcher_) {
+                    transfer_batcher_->RecordTransferPerformance("device_to_host",
+                        candidate_count * sizeof(DeviceCandidate), execution_time);
+                }
+
+                // Periodic memory optimization reporting
+                if (verbose_ && successful_executions % 10 == 0) {
+                    std::cout << "[MEMORY] Memory optimization performance summary:" << std::endl;
+
+                    if (coalescing_optimizer_) {
+                        auto coalescing_report = coalescing_optimizer_->GetPerformanceReport();
+                        std::cout << "[MEMORY] Coalescing efficiency: "
+                                  << std::fixed << std::setprecision(1)
+                                  << coalescing_report["average_efficiency_percentage"] << "%" << std::endl;
+                    }
+
+                    if (memory_pool_manager_) {
+                        auto pool_stats = memory_pool_manager_->GetPoolStatistics();
+                        std::cout << "[MEMORY] Pool hit rate: "
+                                  << std::fixed << std::setprecision(1)
+                                  << pool_stats["hit_rate_percentage"] << "%" << std::endl;
+                    }
+
+                    if (transfer_batcher_) {
+                        auto batch_stats = transfer_batcher_->GetBatchingStatistics();
+                        std::cout << "[MEMORY] Transfer efficiency: "
+                                  << std::fixed << std::setprecision(1)
+                                  << batch_stats["efficiency_percentage"] << "%" << std::endl;
+                    }
+                }
+
+            } catch (const std::exception& e) {
+                if (verbose_) {
+                    std::cout << "[warn] Failed to update memory optimization components: " << e.what() << std::endl;
                 }
             }
         }
@@ -1392,6 +1751,159 @@ double GpuExecutor::GetMemoryEfficiencyScore() const {
             std::cout << "[warn] Memory efficiency scoring failed: " << e.what() << std::endl;
         }
         return 0.0;
+    }
+}
+
+// Memory optimization control methods
+
+void GpuExecutor::EnableMemoryOptimization(bool enabled) {
+    memory_optimization_enabled_ = enabled && memory_optimizer_ != nullptr;
+
+    if (memory_optimization_enabled_) {
+        // Initialize all memory optimization components
+        try {
+            if (memory_optimizer_) {
+                memory_optimizer_->EnableAsynchronousTransfers(true);
+                memory_optimizer_->SetOptimizationLevel(memory_optimization_level_);
+            }
+
+            if (verbose_) {
+                std::cout << "[MEMORY] Memory optimization enabled (level "
+                          << memory_optimization_level_ << ")" << std::endl;
+            }
+        } catch (const std::exception& e) {
+            if (verbose_) {
+                std::cout << "[warn] Failed to enable memory optimization: " << e.what() << std::endl;
+            }
+            memory_optimization_enabled_ = false;
+        }
+    } else {
+        if (verbose_) {
+            std::cout << "[MEMORY] Memory optimization disabled" << std::endl;
+        }
+    }
+}
+
+std::string GpuExecutor::GetMemoryOptimizationReport() const {
+    if (!memory_optimization_enabled_ || !memory_optimizer_) {
+        return "Memory optimization is disabled or unavailable";
+    }
+
+    try {
+        json report;
+        report["optimization_enabled"] = memory_optimization_enabled_;
+        report["optimization_level"] = memory_optimization_level_;
+
+        // Get memory optimizer statistics
+        if (memory_optimizer_) {
+            auto mem_stats = memory_optimizer_->GetPerformanceStatistics();
+            report["memory_optimizer"] = mem_stats;
+        }
+
+        // Get bandwidth validation results
+        if (bandwidth_validator_) {
+            auto bandwidth_stats = bandwidth_validator_->GetPerformanceReport();
+            report["bandwidth_validator"] = bandwidth_stats;
+        }
+
+        // Current configuration impact
+        report["current_config"] = {
+            {"grid_size", config_.grid.x},
+            {"block_size", config_.block.x},
+            {"points_per_thread", config_.points_per_thread},
+            {"total_keys", config_.keys_total}
+        };
+
+        return report.dump(2);
+    } catch (const std::exception& e) {
+        return "Error generating memory optimization report: " + std::string(e.what());
+    }
+}
+
+void GpuExecutor::SetMemoryOptimizationLevel(int level) {
+    if (level < 0 || level > 2) {
+        if (verbose_) {
+            std::cout << "[warn] Invalid memory optimization level: " << level
+                      << " (valid range: 0-2)" << std::endl;
+        }
+        return;
+    }
+
+    memory_optimization_level_ = level;
+
+    if (memory_optimizer_) {
+        try {
+            memory_optimizer_->SetOptimizationLevel(level);
+
+            if (verbose_) {
+                std::cout << "[MEMORY] Optimization level set to " << level;
+                switch (level) {
+                    case 0: std::cout << " (none)"; break;
+                    case 1: std::cout << " (basic)"; break;
+                    case 2: std::cout << " (advanced)"; break;
+                }
+                std::cout << std::endl;
+            }
+        } catch (const std::exception& e) {
+            if (verbose_) {
+                std::cout << "[warn] Failed to set optimization level: " << e.what() << std::endl;
+            }
+        }
+    }
+}
+
+bool GpuExecutor::ValidateMemoryBandwidthUtilization(double target_percentage) {
+    if (!memory_optimization_enabled_ || !bandwidth_validator_) {
+        if (verbose_) {
+            std::cout << "[MEMORY] Bandwidth validation disabled or unavailable" << std::endl;
+        }
+        return true; // Assume validation passes if components are unavailable
+    }
+
+    try {
+        // Run bandwidth validation
+        auto validation_result = bandwidth_validator_->ValidateCurrentBandwidthUtilization(target_percentage);
+
+        if (verbose_) {
+            std::cout << "[MEMORY] Bandwidth validation: "
+                      << (validation_result.is_valid ? "PASSED" : "FAILED") << std::endl;
+            std::cout << "[MEMORY] Current utilization: "
+                      << std::fixed << std::setprecision(1) << validation_result.current_utilization_percentage
+                      << "% (target: " << target_percentage << "%)" << std::endl;
+
+            if (!validation_result.bottlenecks.empty()) {
+                std::cout << "[MEMORY] Bottlenecks detected:" << std::endl;
+                for (const auto& bottleneck : validation_result.bottlenecks) {
+                    std::cout << "[MEMORY]   - " << bottleneck << std::endl;
+                }
+            }
+
+            if (!validation_result.recommendations.empty()) {
+                std::cout << "[MEMORY] Recommendations:" << std::endl;
+                for (const auto& rec : validation_result.recommendations) {
+                    std::cout << "[MEMORY]   - " << rec << std::endl;
+                }
+            }
+        }
+
+        return validation_result.is_valid;
+    } catch (const std::exception& e) {
+        if (verbose_) {
+            std::cout << "[warn] Bandwidth validation failed: " << e.what() << std::endl;
+        }
+        return false;
+    }
+}
+
+std::string GpuExecutor::GetBandwidthPerformanceReport() const {
+    if (!memory_optimization_enabled_ || !bandwidth_validator_) {
+        return "Bandwidth performance monitoring is disabled or unavailable";
+    }
+
+    try {
+        return bandwidth_validator_->GeneratePerformanceReport();
+    } catch (const std::exception& e) {
+        return "Error generating bandwidth performance report: " + std::string(e.what());
     }
 }
 

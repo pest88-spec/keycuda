@@ -9,7 +9,7 @@ namespace puzzle71::constants {
 
 constexpr std::string_view kTargetAddress = "1PWo3JeB9jrGwfHDNpdGK54CRas7fsVzXU";
 constexpr std::array<std::uint32_t, 5> kTargetHash160 = {
-    0xf8455b22u, 0xfa469a40u, 0x654450d3u, 0x63959a3bu, 0x932924b4u};
+    0xd70104b4u, 0x9902133bu, 0x7ef4a795u, 0x046e8c5eu, 0x0d87780du};
 
 constexpr std::uint64_t kKeyspaceStartHigh = 0x4000000000000000ULL;
 constexpr std::uint64_t kKeyspaceEndHigh   = 0x7fffffffffffffffULL;

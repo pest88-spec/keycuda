@@ -259,10 +259,10 @@ cat luck.txt
 | 参数 | 值 |
 |------|-----|
 | **谜题编号** | #71 |
-| **目标地址** | `1BY8GQbnueYofwSuFAT3USAhGjPrkxDdW9` |
-| **私钥范围** | `0x20000000000000000` ~ `0x3ffffffffffffffff` |
-| **范围大小** | 2^69 keys (约590亿亿个密钥) |
-| **估算时间** | 1.2 Gkeys/s ≈ 15.7年 |
+| **目标地址** | `1PWo3JeB9jrGwfHDNpdGK54CRas7fsVzXU` |
+| **私钥范围** | `0x400000000000000000` ~ `0x7fffffffffffffffff` |
+| **范围大小** | 2^71 keys (约2360亿亿个密钥) |
+| **估算时间** | 1.2 Gkeys/s ≈ 63.3年 |
 
 ### 命令行参数
 
@@ -270,8 +270,8 @@ cat luck.txt
 
 | 参数 | 说明 | 示例 |
 |------|------|------|
-| `--keyspace` | 十六进制闭区间 `start:end` | `0x20000000000000000:0x3ffffffffffffffff` |
-| `--target-address` | Bitcoin地址（Puzzle 71） | `1BY8GQbnueYofwSuFAT3USAhGjPrkxDdW9` |
+| `--keyspace` | 十六进制闭区间 `start:end` | `0x400000000000000000:0x7fffffffffffffffff` |
+| `--target-address` | Bitcoin地址（Puzzle 71） | `1PWo3JeB9jrGwfHDNpdGK54CRas7fsVzXU` |
 | `--operator-id` | 操作员标识 | `h20-production` |
 | `--operator-purpose` | 操作目的 | `"Puzzle 71 full scan"` |
 
@@ -292,8 +292,8 @@ cat luck.txt
 
 ```bash
 ./Puzzle71Solver \
-  --keyspace 0x20000000000000000:0x3ffffffffffffffff \
-  --target-address 1BY8GQbnueYofwSuFAT3USAhGjPrkxDdW9 \
+  --keyspace 0x400000000000000000:0x7fffffffffffffffff \
+  --target-address 1PWo3JeB9jrGwfHDNpdGK54CRas7fsVzXU \
   --operator-id h20-gpu0 \
   --operator-purpose "Puzzle 71 production scan" \
   --device 0 \
@@ -305,8 +305,8 @@ cat luck.txt
 ```bash
 # 将范围分为16段，这是第1段
 ./Puzzle71Solver \
-  --keyspace 0x20000000000000000:0x22000000000000000 \
-  --target-address 1BY8GQbnueYofwSuFAT3USAhGjPrkxDdW9 \
+  --keyspace 0x400000000000000000:0x440000000000000000 \
+  --target-address 1PWo3JeB9jrGwfHDNpdGK54CRas7fsVzXU \
   --operator-id h20-segment-01 \
   --operator-purpose "Puzzle 71 segment 1/16" \
   --device 0 \
@@ -325,8 +325,8 @@ screen -S puzzle71
 
 # 在screen中运行
 ./Puzzle71Solver \
-  --keyspace 0x20000000000000000:0x3ffffffffffffffff \
-  --target-address 1BY8GQbnueYofwSuFAT3USAhGjPrkxDdW9 \
+  --keyspace 0x400000000000000000:0x7fffffffffffffffff \
+  --target-address 1PWo3JeB9jrGwfHDNpdGK54CRas7fsVzXU \
   --operator-id h20-production \
   --operator-purpose "Puzzle 71 background scan" \
   --device 0 \
@@ -345,8 +345,8 @@ screen -ls
 
 ```bash
 nohup ./Puzzle71Solver \
-  --keyspace 0x20000000000000000:0x3ffffffffffffffff \
-  --target-address 1BY8GQbnueYofwSuFAT3USAhGjPrkxDdW9 \
+  --keyspace 0x400000000000000000:0x7fffffffffffffffff \
+  --target-address 1PWo3JeB9jrGwfHDNpdGK54CRas7fsVzXU \
   --operator-id h20-nohup \
   --operator-purpose "Puzzle 71 nohup scan" \
   --device 0 \
