@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.22)
 
-project(Puzzle71Solver VERSION 0.1.0 LANGUAGES CXX CUDA)
+project(Puzzle71Solver VERSION 0.2.1 LANGUAGES CXX CUDA)
 
 option(SECP256K1_AVAILABLE "Enable bitcoin-core/secp256k1 parity checks" ON)
 
