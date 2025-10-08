@@ -1,4 +1,6 @@
 #include "ComputeCore/gpu/gpu_executor.h"
+#include "services/operator_metadata_validator.h"
+#include "ComputeCore/gpu/performance/adaptive_parallelism_scaling.h"
 
 #include "ComputeCore/adapters/reference/conversions.h"
 #include "ComputeCore/gpu/batch_planner.h"
@@ -49,91 +51,198 @@ bool IsOutOfMemoryError(const std::runtime_error& ex) {
 }
 
 bool ReduceBatchForOom(gpu::BatchConfig& cfg) {
-    if (cfg.points_per_thread > 1) {
-        cfg.points_per_thread = std::max(1, cfg.points_per_thread / 2);
+    // Enhanced OOM reduction with logging and adaptive fallback awareness
+    std::cout << "[OOM] Reducing batch due to memory constraints: "
+              << "grid=" << cfg.grid.x
+              << " block=" << cfg.block.x
+              << " ppt=" << cfg.points_per_thread
+              << " keys=" << cfg.keys_total << std::endl;
+
+    // Tier 1: Reduce points per thread (most effective for memory reduction)
+    if (cfg.points_per_thread > 64) {
+        int old_ppt = cfg.points_per_thread;
+        cfg.points_per_thread = std::max(64, cfg.points_per_thread / 2);
+        std::cout << "[OOM] Reduced points_per_thread: " << old_ppt << " → " << cfg.points_per_thread << std::endl;
         return true;
     }
 
+    // Tier 2: Reduce block size while maintaining warp alignment
     constexpr unsigned int kWarp = 32;
-    if (cfg.block.x > kWarp) {
+    if (cfg.block.x > kWarp * 4) { // Keep minimum of 128 threads for efficiency
+        unsigned int old_block = cfg.block.x;
         unsigned int reduced = cfg.block.x / 2;
-        reduced = (reduced / kWarp) * kWarp;
-        if (reduced >= kWarp) {
+        reduced = (reduced / kWarp) * kWarp; // Warp-align
+        if (reduced >= kWarp * 4) {
             cfg.block.x = reduced;
+            std::cout << "[OOM] Reduced block size (warp-aligned): " << old_block << " → " << cfg.block.x << std::endl;
             return true;
         }
     }
 
+    // Tier 3: Reduce grid size (last resort)
     if (cfg.grid.x > 1) {
+        unsigned int old_grid = cfg.grid.x;
         cfg.grid.x = std::max<unsigned int>(1u, cfg.grid.x / 2);
+        std::cout << "[OOM] Reduced grid size: " << old_grid << " → " << cfg.grid.x << std::endl;
         return true;
     }
 
+    std::cout << "[OOM] Cannot reduce batch further - using minimum safe configuration" << std::endl;
     return false;
 }
 
-// Ultra-aggressive batch configuration for maximum GPU utilization
-gpu::BatchConfig GetProgressiveBatchConfig(int /* device_id */, size_t available_memory_mb, bool first_init) {
+// Adaptive batch configuration using parallelism scaling
+gpu::BatchConfig GetProgressiveBatchConfig(int device_id, size_t available_memory_mb, bool first_init,
+                                           puzzle71::gpu::performance::AdaptiveParallelismScaling* adaptive_scaling) {
     gpu::BatchConfig config{};
 
-    // Target 80-90% GPU memory usage for maximum utilization
-    const size_t kReservedMemoryMB = 1024;      // Reserve 1GB for system/OS
+    if (adaptive_scaling) {
+        // Use adaptive parallelism scaling for optimal configuration
+        try {
+            size_t workload_size = first_init ? 64'000'000 : 1'000'000'000; // Target workload size
+
+            // Calculate optimal configuration based on GPU capabilities and workload
+            auto scaling_decision = adaptive_scaling->CalculateOptimalConfiguration(workload_size, "key_search");
+            auto parallel_config = scaling_decision.selected_config;
+
+            // Convert parallelism configuration to batch config
+            config.grid = dim3(static_cast<unsigned int>(parallel_config.grid_size), 1, 1);
+            config.block = dim3(static_cast<unsigned int>(parallel_config.block_size), 1, 1);
+            config.points_per_thread = parallel_config.points_per_thread;
+
+            // Apply memory constraints if needed
+            if (parallel_config.memory_utilization_estimate > 0.85) {
+                std::cout << "[ADAPTIVE] Memory constraint detected ("
+                          << std::fixed << std::setprecision(3) << parallel_config.memory_utilization_estimate * 100
+                          << "% > 85%), applying memory-aware scaling..." << std::endl;
+
+                auto memory_scaled_config = adaptive_scaling->ScaleForMemoryConstraints(
+                    parallel_config, available_memory_mb);
+
+                std::cout << "[ADAPTIVE] Memory scaling: "
+                          << " ppt " << parallel_config.points_per_thread << "→" << memory_scaled_config.points_per_thread
+                          << " block " << parallel_config.block_size << "→" << memory_scaled_config.block_size
+                          << " grid " << parallel_config.grid_size << "→" << memory_scaled_config.grid_size
+                          << " new_util=" << std::fixed << std::setprecision(3) << memory_scaled_config.memory_utilization_estimate * 100 << "%"
+                          << " rationale=" << memory_scaled_config.configuration_rationale << std::endl;
+
+                config.points_per_thread = memory_scaled_config.points_per_thread;
+                config.block = dim3(static_cast<unsigned int>(memory_scaled_config.block_size), 1, 1);
+                config.grid = dim3(static_cast<unsigned int>(memory_scaled_config.grid_size), 1, 1);
+            }
+
+            // Calculate total keys
+            std::uint64_t threads = static_cast<std::uint64_t>(config.grid.x) * config.block.x;
+            std::uint64_t batch_size = threads * static_cast<std::uint64_t>(config.points_per_thread);
+            config.keys_total = batch_size;
+
+            // Detailed logging for adaptive configuration
+            std::cout << "[ADAPTIVE] Batch Config: grid=" << config.grid.x
+                      << " block=" << config.block.x
+                      << " ppt=" << config.points_per_thread
+                      << " total_keys=" << config.keys_total
+                      << " occupancy=" << std::fixed << std::setprecision(3) << parallel_config.expected_occupancy
+                      << " memory=" << std::fixed << std::setprecision(3) << parallel_config.memory_utilization_estimate * 100 << "%"
+                      << " confidence=" << std::fixed << std::setprecision(3) << scaling_decision.confidence_score * 100 << "%"
+                      << " rationale=" << parallel_config.configuration_rationale << std::endl;
+
+            // Enhanced decision logging with optimization metrics
+            if (!parallel_config.optimization_metrics.empty()) {
+                std::cout << "[ADAPTIVE] Decision Details:" << std::endl;
+                for (const auto& [key, value] : parallel_config.optimization_metrics.items()) {
+                    std::cout << "  - " << key << ": " << value << std::endl;
+                }
+            }
+
+            // Log alternatives if available
+            if (!scaling_decision.alternatives.empty()) {
+                std::cout << "[ADAPTIVE] Alternative Configurations:" << std::endl;
+                for (size_t i = 0; i < std::min(size_t(3), scaling_decision.alternatives.size()); ++i) {
+                    const auto& alt = scaling_decision.alternatives[i];
+                    std::cout << "  " << (i+1) << ". grid=" << alt.grid_size
+                              << " block=" << alt.block_size
+                              << " ppt=" << alt.points_per_thread
+                              << " occupancy=" << std::fixed << std::setprecision(3) << alt.expected_occupancy
+                              << " rationale=" << alt.configuration_rationale << std::endl;
+                }
+            }
+
+            // Log constraints applied if any
+            if (!scaling_decision.constraints_applied.empty()) {
+                std::cout << "[ADAPTIVE] Constraints Applied: ";
+                for (size_t i = 0; i < scaling_decision.constraints_applied.size(); ++i) {
+                    if (i > 0) std::cout << ", ";
+                    std::cout << scaling_decision.constraints_applied[i];
+                }
+                std::cout << std::endl;
+            }
+
+            // Log GPU capabilities for context
+            const auto& gpu_caps = scaling_decision.gpu_capabilities;
+            std::cout << "[ADAPTIVE] GPU Context: " << gpu_caps.device_name
+                      << " (Compute " << gpu_caps.compute_capability / 10 << "."
+                      << gpu_caps.compute_capability % 10 << ")"
+                      << " SMs=" << gpu_caps.sm_count
+                      << " Memory=" << gpu_caps.total_memory_mb << "MB"
+                      << " Free=" << gpu_caps.free_memory_mb << "MB"
+                      << " Bandwidth=" << std::fixed << std::setprecision(1) << gpu_caps.memory_bandwidth_gb_per_sec << "GB/s"
+                      << std::endl;
+
+            return config;
+        } catch (const std::exception& e) {
+            std::cout << "[warn] Adaptive scaling failed: " << e.what() << std::endl;
+            std::cout << "[warn] Falling back to manual configuration" << std::endl;
+
+            // Enhanced fallback logging
+            if (adaptive_scaling && verbose_) {
+                try {
+                    auto fallback_configs = adaptive_scaling->GetFallbackConfigurations();
+                    std::cout << "[FALLBACK] Available fallback configurations:" << std::endl;
+                    for (size_t i = 0; i < fallback_configs.size(); ++i) {
+                        const auto& fallback = fallback_configs[i];
+                        std::cout << "  " << (i+1) << ". " << fallback.configuration_rationale
+                                  << " (grid=" << fallback.grid_size
+                                  << " block=" << fallback.block_size
+                                  << " ppt=" << fallback.points_per_thread << ")" << std::endl;
+                    }
+                } catch (const std::exception& fb_e) {
+                    std::cout << "[warn] Failed to get fallback configs: " << fb_e.what() << std::endl;
+                }
+            }
+        }
+    }
+
+    // Fallback to manual configuration (original logic)
+    const size_t kReservedMemoryMB = 1024;
     const size_t kUsableMemoryMB = available_memory_mb > kReservedMemoryMB
                                       ? available_memory_mb - kReservedMemoryMB
                                       : available_memory_mb * 3 / 4;
-
-    // Aggressive memory usage target (80% of usable memory)
     const size_t kTargetMemoryUtilizationMB = kUsableMemoryMB * 80 / 100;
-
-    // More aggressive memory estimates - assume 32 bytes per key (very conservative)
-    const size_t kMemoryPerKeyEstimate = first_init ? 96 : 32;  // Aggressive estimate
-
-    // Calculate maximum keys based on available memory
+    const size_t kMemoryPerKeyEstimate = first_init ? 96 : 32;
     std::uint64_t max_keys_by_memory = (kTargetMemoryUtilizationMB * 1024 * 1024) / kMemoryPerKeyEstimate;
-
-    // Ultra-aggressive batch size targets for maximum GPU utilization
-    constexpr std::uint64_t kInitialMaxKeys = 64'000'000;      // 64M keys for first init
-    constexpr std::uint64_t kProgressiveMaxKeys = 1'000'000'000; // 1B keys for subsequent
-
+    constexpr std::uint64_t kInitialMaxKeys = 64'000'000;
+    constexpr std::uint64_t kProgressiveMaxKeys = 1'000'000'000;
     std::uint64_t target_keys = std::min(max_keys_by_memory, first_init ? kInitialMaxKeys : kProgressiveMaxKeys);
 
-    // Ultra-high utilization configuration for RTX A4000 (16GB VRAM)
-    if (first_init) {
-        // Aggressive start to engage GPU immediately
-        config.grid = dim3(4096, 1, 1);     // 4096 blocks
-        config.block = dim3(256, 1, 1);     // 256 threads per block (optimal)
-        config.points_per_thread = 128;     // 128 points per thread
-    } else {
-        // Maximum configuration for sustained high utilization
-        config.grid = dim3(16384, 1, 1);    // 16K blocks (much higher)
-        config.block = dim3(256, 1, 1);     // 256 threads per block
-        config.points_per_thread = 512;     // 512 points per thread (very aggressive)
-    }
+    // Conservative manual configuration
+    config.grid = dim3(first_init ? 2048 : 4096, 1, 1);
+    config.block = dim3(512, 1, 1);
+    config.points_per_thread = first_init ? 64 : 128;
 
     std::uint64_t threads = static_cast<std::uint64_t>(config.grid.x) * config.block.x;
     std::uint64_t batch_size = threads * static_cast<std::uint64_t>(config.points_per_thread);
 
-    // Scale down only if absolutely necessary for memory constraints
-    while (batch_size > target_keys && config.grid.x > 2048) {  // Minimum 2048 grids
-        config.grid.x = std::max<unsigned int>(2048u, config.grid.x / 2);
-        batch_size = static_cast<std::uint64_t>(config.grid.x) * config.block.x * config.points_per_thread;
-    }
-
-    while (batch_size > target_keys && config.points_per_thread > 64) {  // Minimum 64 PPT
-        config.points_per_thread = std::max(64, config.points_per_thread / 2);
+    while (batch_size > target_keys && config.grid.x > 1024) {
+        config.grid.x = std::max<unsigned int>(1024u, config.grid.x / 2);
         batch_size = static_cast<std::uint64_t>(config.grid.x) * config.block.x * config.points_per_thread;
     }
 
     config.keys_total = batch_size;
 
-    // Detailed logging for GPU utilization debugging
-    std::cout << "[GPU-UTIL] Batch Config: grid=" << config.grid.x
+    std::cout << "[MANUAL] Fallback Batch Config: grid=" << config.grid.x
               << " block=" << config.block.x
               << " ppt=" << config.points_per_thread
-              << " total_keys=" << config.keys_total
-              << " estimated_memory_mb=" << (batch_size * kMemoryPerKeyEstimate / (1024*1024))
-              << " target_memory_mb=" << kTargetMemoryUtilizationMB
-              << " memory_utilization_target=" << (kTargetMemoryUtilizationMB * 100 / available_memory_mb) << "%" << std::endl;
+              << " total_keys=" << config.keys_total << std::endl;
 
     return config;
 }
@@ -173,6 +282,55 @@ GpuExecutor::GpuExecutor(int device_id,
     if (status != cudaSuccess) {
         throw std::runtime_error(std::string("Failed to upload target HASH160: ") + cudaGetErrorString(status));
     }
+    // Initialize performance optimization components
+    try {
+        if (verbose_) {
+            std::cout << "[debug] GpuExecutor: Initializing fused initialization kernel..." << std::endl;
+        }
+        fused_init_kernel_ = puzzle71::gpu::performance::FusedInitializationKernel::Create(device_id_);
+
+        // Check if fused initialization is supported for this GPU
+        use_fused_initialization_ = ShouldUseFusedInitialization();
+
+        if (verbose_) {
+            std::cout << "[debug] GpuExecutor: Fused initialization "
+                      << (use_fused_initialization_ ? "enabled" : "disabled") << std::endl;
+        }
+    } catch (const std::exception& e) {
+        if (verbose_) {
+            std::cout << "[warn] Failed to initialize fused kernel: " << e.what() << std::endl;
+            std::cout << "[warn] Falling back to sequential initialization" << std::endl;
+        }
+        use_fused_initialization_ = false;
+    }
+
+    // Initialize adaptive parallelism scaling
+    try {
+        if (verbose_) {
+            std::cout << "[debug] GpuExecutor: Initializing adaptive parallelism scaling..." << std::endl;
+        }
+        adaptive_scaling_ = puzzle71::gpu::performance::CreateAdaptiveParallelismScaling(
+            device_id_, true, true);
+
+        // Configure adaptive scaling for key search workloads
+        adaptive_scaling_->SetPerformanceTargets(1000.0, 0.85); // 1K Mkeys/s, 85% memory
+        adaptive_scaling_->SetOptimizationStrategy("balanced");
+
+        if (verbose_) {
+            std::cout << "[debug] GpuExecutor: Adaptive parallelism scaling enabled" << std::endl;
+            auto gpu_caps = adaptive_scaling_->DetectGpuCapabilities(device_id_);
+            std::cout << "[debug] GPU: " << gpu_caps.device_name
+                      << " (Compute " << gpu_caps.compute_capability / 10 << "."
+                      << gpu_caps.compute_capability % 10 << ")" << std::endl;
+        }
+    } catch (const std::exception& e) {
+        if (verbose_) {
+            std::cout << "[warn] Failed to initialize adaptive scaling: " << e.what() << std::endl;
+            std::cout << "[warn] Using manual configuration only" << std::endl;
+        }
+        adaptive_scaling_enabled_ = false;
+    }
+
     if (verbose_) {
         std::cout << "[debug] GpuExecutor: Constructor complete" << std::endl;
     }
@@ -209,31 +367,11 @@ void GpuExecutor::InitializeDeviceKeys(const std::vector<secp256k1::uint256>& sc
                                        int points_per_thread,
                                        dim3 grid,
                                        dim3 block) {
-    CheckCuda(cudaSetDevice(device_id_), "cudaSetDevice");
-    CheckCuda(cudaSetDeviceFlags(cudaDeviceScheduleBlockingSync), "cudaSetDeviceFlags");
-    CheckCuda(cudaDeviceSetCacheConfig(cudaFuncCachePreferL1), "cudaDeviceSetCacheConfig");
-
-    CheckCuda(device_keys_.init(static_cast<int>(grid.x),
-                                static_cast<int>(block.x),
-                                points_per_thread,
-                                scalars),
-              "device_keys_.init");
-
-    for (int i = 1; i <= 256; ++i) {
-        CheckCuda(device_keys_.doStep(), "device_keys_.doStep");
+    if (use_fused_initialization_ && fused_init_kernel_) {
+        InitializeDeviceKeysFused(scalars, points_per_thread, grid, block);
+    } else {
+        InitializeDeviceKeysSequential(scalars, points_per_thread, grid, block);
     }
-
-    const std::uint64_t total_points = static_cast<std::uint64_t>(grid.x) *
-                                       static_cast<std::uint64_t>(block.x) *
-                                       static_cast<std::uint64_t>(points_per_thread);
-
-    CheckCuda(allocateChainBuf(static_cast<unsigned int>(total_points)), "allocateChainBuf");
-
-    const secp256k1::ecpoint g = secp256k1::G();
-    const secp256k1::ecpoint p = secp256k1::multiplyPoint(secp256k1::uint256(total_points), g);
-    CheckCuda(setIncrementorPoint(p.x, p.y), "setIncrementorPoint");
-
-    device_keys_.clearPrivateKeys();
 }
 
 void GpuExecutor::PrepareResultBuffers(std::size_t capacity) {
@@ -358,7 +496,9 @@ void GpuExecutor::PrepareBatch(const BatchConfig& config,
             bool first_init = !gpu_initialized_;
             if (first_init || free_mem < min_free * 2) {  // Use progressive strategy on first init or low memory
                 std::uint64_t target_keys = config_.keys_total;
-                BatchConfig progressive_config = GetProgressiveBatchConfig(device_id_, free_mem_mb, first_init);
+                BatchConfig progressive_config = GetProgressiveBatchConfig(
+                    device_id_, free_mem_mb, first_init,
+                    adaptive_scaling_enabled_ ? adaptive_scaling_.get() : nullptr);
 
                 // Ensure the progressive config respects our target batch size
                 if (target_keys > 0 && target_keys < progressive_config.keys_total) {
@@ -456,17 +596,74 @@ void GpuExecutor::PrepareBatch(const BatchConfig& config,
             }
             break;
         } catch (const std::runtime_error& ex) {
-            if (!IsOutOfMemoryError(ex) || !ReduceBatchForOom(config_)) {
+            if (!IsOutOfMemoryError(ex)) {
+                // Non-memory error - try adaptive scaling fallback if available
+                if (adaptive_scaling_enabled_ && adaptive_scaling_) {
+                    try {
+                        std::cout << "[FALLBACK] CUDA error detected, trying adaptive scaling fallback..." << std::endl;
+
+                        // Get safe configuration from adaptive scaling
+                        auto safe_config = adaptive_scaling_->GetSafeConfiguration();
+
+                        // Convert to batch config
+                        config_.grid = dim3(static_cast<unsigned int>(safe_config.grid_size), 1, 1);
+                        config_.block = dim3(static_cast<unsigned int>(safe_config.block_size), 1, 1);
+                        config_.points_per_thread = safe_config.points_per_thread;
+
+                        ClampBatchConfig(config_, kMaxKeysPerBatch);
+
+                        std::cout << "[FALLBACK] Applied safe adaptive config: grid=" << config_.grid.x
+                                  << " block=" << config_.block.x
+                                  << " ppt=" << config_.points_per_thread
+                                  << " rationale=" << safe_config.configuration_rationale << std::endl;
+
+                        scalars_ready = false;
+                        continue;
+                    } catch (const std::exception& fallback_ex) {
+                        std::cout << "[warn] Adaptive fallback failed: " << fallback_ex.what() << std::endl;
+                    }
+                }
                 throw;
             }
-            if (verbose_) {
-                std::cout << "[warn] CUDA out of memory during init; reducing batch to grid=" << config_.grid.x
-                          << " block=" << config_.block.x
-                          << " points/thread=" << config_.points_per_thread << std::endl;
+
+            // Memory error - use enhanced OOM reduction
+            if (ReduceBatchForOom(config_)) {
+                if (verbose_) {
+                    std::cout << "[warn] CUDA out of memory during init; reduced batch to grid=" << config_.grid.x
+                              << " block=" << config_.block.x
+                              << " points/thread=" << config_.points_per_thread << std::endl;
+                }
+                ClampBatchConfig(config_, kMaxKeysPerBatch);
+                scalars_ready = false;
+                continue;
+            } else {
+                // OOM reduction failed - try adaptive scaling as last resort
+                if (adaptive_scaling_enabled_ && adaptive_scaling_) {
+                    try {
+                        std::cout << "[EMERGENCY] OOM reduction failed, using adaptive scaling emergency fallback..." << std::endl;
+
+                        // Try each fallback configuration
+                        auto fallback_configs = adaptive_scaling_->GetFallbackConfigurations();
+                        for (const auto& fallback : fallback_configs) {
+                            config_.grid = dim3(static_cast<unsigned int>(fallback.grid_size), 1, 1);
+                            config_.block = dim3(static_cast<unsigned int>(fallback.block_size), 1, 1);
+                            config_.points_per_thread = fallback.points_per_thread;
+
+                            std::cout << "[EMERGENCY] Trying fallback: " << fallback.configuration_rationale
+                                      << " (grid=" << config_.grid.x
+                                      << " block=" << config_.block.x
+                                      << " ppt=" << config_.points_per_thread << ")" << std::endl;
+
+                            scalars_ready = false;
+                            break; // Use first fallback config
+                        }
+                        continue;
+                    } catch (const std::exception& emergency_ex) {
+                        std::cout << "[error] Emergency fallback failed: " << emergency_ex.what() << std::endl;
+                    }
+                }
+                throw;
             }
-            ClampBatchConfig(config_, kMaxKeysPerBatch);
-            scalars_ready = false;
-            continue;
         }
     }
 }
@@ -474,13 +671,53 @@ void GpuExecutor::PrepareBatch(const BatchConfig& config,
 StepResult GpuExecutor::Execute() {
     StepResult result{};
 
+    // Create operation metadata for validation and auditing
+    services::OperationMetadata operation_metadata;
+    operation_metadata.operator_id = current_operator_id_;
+    operation_metadata.purpose = services::OperatorPurpose::DATA_PROCESSING;
+    operation_metadata.operation_description = "GPU-based elliptic curve key search execution";
+    operation_metadata.environment = GetEnvironmentName();
+    operation_metadata.operation_parameters["device_id"] = device_id_;
+    operation_metadata.operation_parameters["keys_total"] = config_.keys_total;
+    operation_metadata.operation_parameters["points_per_thread"] = config_.points_per_thread;
+    operation_metadata.operation_parameters["grid_size"] = config_.grid.x;
+    operation_metadata.operation_parameters["block_size"] = config_.block.x;
+    operation_metadata.start_time = std::chrono::system_clock::now();
+
+    // Validate operator metadata if validator is available
+    if (operator_validator_) {
+        auto validation_result = operator_validator_->ValidateOperationMetadata(operation_metadata);
+        if (!validation_result.is_valid) {
+            std::cerr << "[error] Operator metadata validation failed:" << std::endl;
+            for (const auto& error : validation_result.validation_errors) {
+                std::cerr << "  - " << error << std::endl;
+            }
+            return result;
+        }
+
+        // Record the operation
+        operator_validator_->RecordOperation(operation_metadata);
+    }
+
     if (verbose_) {
         std::cout << "[debug] Execute(): device_candidates_.size()=" << device_candidates_.size()
                   << " config_.keys_total=" << config_.keys_total << std::endl;
+        if (operator_validator_) {
+            std::cout << "[debug] Operator ID: " << current_operator_id_ << " (validated)" << std::endl;
+        }
     }
 
     if (device_candidates_.size() == 0) {
         std::cout << "[debug] Early return: device_candidates_.size() == 0" << std::endl;
+
+        // Record failure if operator validator is available
+        if (operator_validator_) {
+            operation_metadata.result_summary["status"] = "failed";
+            operation_metadata.result_summary["reason"] = "no_device_candidates";
+            operation_metadata.end_time = std::chrono::system_clock::now();
+            operator_validator_->UpdateOperationResult(operation_metadata.operation_id, operation_metadata.result_summary);
+        }
+
         return result;
     }
 
@@ -654,9 +891,70 @@ StepResult GpuExecutor::Execute() {
                               static_cast<double>(result.elapsed_us);
     }
 
-    // Update successful execution counter for progressive scaling
+    // Update successful execution counter and adaptive scaling feedback
     if (result.processed_keys > 0 && result.elapsed_us > 0) {
         successful_executions++;
+
+        // Update adaptive parallelism scaling with performance feedback
+        if (adaptive_scaling_enabled_ && adaptive_scaling_) {
+            try {
+                // Create parallelism configuration from current settings
+                puzzle71::gpu::performance::ParallelismConfiguration current_config;
+                current_config.block_size = config_.block.x;
+                current_config.points_per_thread = config_.points_per_thread;
+                current_config.grid_size = config_.grid.x;
+                current_config.expected_occupancy = 0.75; // Estimate
+                current_config.memory_utilization_estimate = 0.7; // Estimate
+
+                // Record performance result for learning
+                double throughput_mkeys_per_sec = result.keys_per_sec / 1'000'000.0;
+                std::chrono::microseconds execution_time(result.elapsed_us);
+                adaptive_scaling_->RecordPerformanceResult(
+                    current_config, throughput_mkeys_per_sec, execution_time, true);
+
+                // Apply dynamic scaling if performance is suboptimal (every 5 executions)
+                if (successful_executions % 5 == 0) {
+                    bool scaling_applied = ApplyDynamicScalingDuringExecution(throughput_mkeys_per_sec);
+                    if (scaling_applied && verbose_) {
+                        std::cout << "[adaptive] Dynamic scaling applied, new configuration will be used in next batch" << std::endl;
+                    }
+                }
+
+                if (verbose_ && successful_executions % 10 == 0) {
+                    auto analytics = adaptive_scaling_->GetPerformanceAnalytics();
+                    std::cout << "[adaptive] Scaling effectiveness: "
+                              << std::fixed << std::setprecision(3) << analytics["average_confidence_score"] * 100 << "%"
+                              << " decisions: " << analytics["decision_count"]
+                              << " failed: " << analytics["failed_configurations"] << std::endl;
+
+                    // Log detailed performance history
+                    auto performance_history = adaptive_scaling_->GetPerformanceHistory();
+                    if (!performance_history.empty()) {
+                        std::cout << "[adaptive] Performance History (top 5 configs):" << std::endl;
+                        int count = 0;
+                        for (const auto& [config, avg_throughput] : performance_history) {
+                            if (count++ >= 5) break;
+                            std::cout << "  - " << config << ": "
+                                      << std::fixed << std::setprecision(1) << avg_throughput << " Mkeys/s" << std::endl;
+                        }
+                    }
+
+                    // Log optimization recommendations
+                    auto recommendations = adaptive_scaling_->GetOptimizationRecommendations();
+                    if (!recommendations.empty()) {
+                        std::cout << "[adaptive] Recommendations:" << std::endl;
+                        for (const auto& rec : recommendations) {
+                            std::cout << "  - " << rec << std::endl;
+                        }
+                    }
+                }
+            } catch (const std::exception& e) {
+                if (verbose_) {
+                    std::cout << "[warn] Failed to update adaptive scaling: " << e.what() << std::endl;
+                }
+            }
+        }
+
         if (verbose_ && successful_executions % 5 == 0) {
             std::cout << "[debug] Performance scaling: " << successful_executions
                       << " successful executions, current config: grid=" << config_.grid.x
@@ -726,6 +1024,375 @@ void GpuExecutor::InitializeDeviceKeysAsync(const std::vector<secp256k1::uint256
     // For now, just call the synchronous version
     // The async memory transfer optimization is mainly in the Execute() method
     InitializeDeviceKeys(scalars, points_per_thread, grid, block);
+}
+
+// Performance optimization: fused initialization implementation
+void GpuExecutor::InitializeDeviceKeysFused(const std::vector<secp256k1::uint256>& scalars,
+                                            int points_per_thread,
+                                            dim3 grid,
+                                            dim3 block) {
+    if (verbose_) {
+        std::cout << "[debug] Using fused initialization kernel" << std::endl;
+    }
+
+    CheckCuda(cudaSetDevice(device_id_), "cudaSetDevice");
+    CheckCuda(cudaSetDeviceFlags(cudaDeviceScheduleBlockingSync), "cudaSetDeviceFlags");
+    CheckCuda(cudaDeviceSetCacheConfig(cudaFuncCachePreferL1), "cudaDeviceSetCacheConfig");
+
+    // Initialize device keys normally (but skip the sequential doStep calls)
+    CheckCuda(device_keys_.init(static_cast<int>(grid.x),
+                                static_cast<int>(block.x),
+                                points_per_thread,
+                                scalars),
+              "device_keys_.init");
+
+    // Use fused initialization kernel to replace 256 sequential doStep calls
+    try {
+        if (verbose_) {
+            std::cout << "[debug] Launching fused initialization kernel..." << std::endl;
+        }
+
+        // Configure fused kernel
+        puzzle71::gpu::performance::FusedInitConfig config;
+        config.points_per_thread = points_per_thread;
+        config.block_size = block.x;
+
+        // Launch fused initialization
+        auto result = fused_init_kernel_->InitializeGroupTable(config);
+
+        if (result.success && verbose_) {
+            std::cout << "[debug] Fused initialization completed successfully" << std::endl;
+            std::cout << "[debug] Performance improvement: " << result.performance_improvement_factor << "x" << std::endl;
+            std::cout << "[debug] Time saved: " << result.execution_time.count() << " μs" << std::endl;
+        } else if (!result.success) {
+            if (verbose_) {
+                std::cout << "[warn] Fused initialization failed: " << result.error_message << std::endl;
+                std::cout << "[warn] Falling back to sequential initialization" << std::endl;
+            }
+            // Fallback to sequential initialization
+            InitializeDeviceKeysSequential(scalars, points_per_thread, grid, block);
+            return;
+        }
+    } catch (const std::exception& e) {
+        if (verbose_) {
+            std::cout << "[warn] Fused initialization exception: " << e.what() << std::endl;
+            std::cout << "[warn] Falling back to sequential initialization" << std::endl;
+        }
+        // Fallback to sequential initialization
+        InitializeDeviceKeysSequential(scalars, points_per_thread, grid, block);
+        return;
+    }
+
+    // Continue with remaining initialization steps
+    const std::uint64_t total_points = static_cast<std::uint64_t>(grid.x) *
+                                       static_cast<std::uint64_t>(block.x) *
+                                       static_cast<std::uint64_t>(points_per_thread);
+
+    CheckCuda(allocateChainBuf(static_cast<unsigned int>(total_points)), "allocateChainBuf");
+
+    const secp256k1::ecpoint g = secp256k1::G();
+    const secp256k1::ecpoint p = secp256k1::multiplyPoint(secp256k1::uint256(total_points), g);
+    CheckCuda(setIncrementorPoint(p.x, p.y), "setIncrementorPoint");
+
+    device_keys_.clearPrivateKeys();
+
+    if (verbose_) {
+        std::cout << "[debug] Fused device keys initialization completed" << std::endl;
+    }
+}
+
+void GpuExecutor::InitializeDeviceKeysSequential(const std::vector<secp256k1::uint256>& scalars,
+                                               int points_per_thread,
+                                               dim3 grid,
+                                               dim3 block) {
+    if (verbose_) {
+        std::cout << "[debug] Using sequential initialization (fallback mode)" << std::endl;
+    }
+
+    CheckCuda(cudaSetDevice(device_id_), "cudaSetDevice");
+    CheckCuda(cudaSetDeviceFlags(cudaDeviceScheduleBlockingSync), "cudaSetDeviceFlags");
+    CheckCuda(cudaDeviceSetCacheConfig(cudaFuncCachePreferL1), "cudaDeviceSetCacheConfig");
+
+    CheckCuda(device_keys_.init(static_cast<int>(grid.x),
+                                static_cast<int>(block.x),
+                                points_per_thread,
+                                scalars),
+              "device_keys_.init");
+
+    // Original sequential initialization (256 calls with sync)
+    for (int i = 1; i <= 256; ++i) {
+        CheckCuda(device_keys_.doStep(), "device_keys_.doStep");
+    }
+
+    const std::uint64_t total_points = static_cast<std::uint64_t>(grid.x) *
+                                       static_cast<std::uint64_t>(block.x) *
+                                       static_cast<std::uint64_t>(points_per_thread);
+
+    CheckCuda(allocateChainBuf(static_cast<unsigned int>(total_points)), "allocateChainBuf");
+
+    const secp256k1::ecpoint g = secp256k1::G();
+    const secp256k1::ecpoint p = secp256k1::multiplyPoint(secp256k1::uint256(total_points), g);
+    CheckCuda(setIncrementorPoint(p.x, p.y), "setIncrementorPoint");
+
+    device_keys_.clearPrivateKeys();
+
+    if (verbose_) {
+        std::cout << "[debug] Sequential device keys initialization completed" << std::endl;
+    }
+}
+
+bool GpuExecutor::ShouldUseFusedInitialization() const {
+    // Check GPU compatibility for fused initialization
+    int compute_capability = props_.major * 10 + props_.minor;
+
+    // Require compute capability 7.5+ for optimal performance
+    if (compute_capability < 75) {
+        if (verbose_) {
+            std::cout << "[debug] GPU compute capability " << compute_capability
+                      << " insufficient for fused initialization (requires 7.5+)" << std::endl;
+        }
+        return false;
+    }
+
+    // Require sufficient memory for fused operations
+    size_t total_memory_mb = props_.totalGlobalMem / (1024 * 1024);
+    if (total_memory_mb < 4096) { // 4GB minimum
+        if (verbose_) {
+            std::cout << "[debug] GPU memory " << total_memory_mb
+                      << "MB insufficient for fused initialization (requires 4096MB+)" << std::endl;
+        }
+        return false;
+    }
+
+    return use_fused_initialization_;
+}
+
+// Operator metadata enforcement methods
+
+void GpuExecutor::SetOperatorValidator(std::shared_ptr<puzzle71::services::OperatorMetadataValidator> validator) {
+    operator_validator_ = validator;
+}
+
+void GpuExecutor::SetCurrentOperator(const std::string& operator_id) {
+    current_operator_id_ = operator_id;
+}
+
+std::string GpuExecutor::GetEnvironmentName() const {
+    // Determine environment based on context
+    if (verbose_) {
+        return "development";
+    }
+
+    // Check if running in production environment
+    const char* env = std::getenv("ENVIRONMENT");
+    if (env && std::string(env) == "production") {
+        return "production";
+    } else if (env && std::string(env) == "staging") {
+        return "staging";
+    } else {
+        return "development";
+    }
+}
+
+void GpuExecutor::RecordExecutionSuccess(const services::OperationMetadata& operation_metadata, const StepResult& result) {
+    if (operator_validator_) {
+        json result_summary;
+        result_summary["status"] = "success";
+        result_summary["processed_keys"] = result.processed_keys;
+        result_summary["elapsed_us"] = result.elapsed_us;
+        result_summary["keys_per_sec"] = result.keys_per_sec;
+        result_summary["candidates_found"] = result.candidates.size();
+        result_summary["dropped_candidates"] = result.dropped_candidates;
+        result_summary["next_scalar"] = result.next_scalar.ToString();
+
+        operator_validator_->UpdateOperationResult(operation_metadata.operation_id, result_summary);
+    }
+}
+
+void GpuExecutor::RecordExecutionFailure(const services::OperationMetadata& operation_metadata, const std::string& reason) {
+    if (operator_validator_) {
+        json result_summary;
+        result_summary["status"] = "failed";
+        result_summary["reason"] = reason;
+        result_summary["timestamp"] = std::chrono::system_clock::to_time_t(std::chrono::system_clock::now());
+
+        operator_validator_->UpdateOperationResult(operation_metadata.operation_id, result_summary);
+    }
+}
+
+// Adaptive parallelism scaling control methods
+
+void GpuExecutor::EnableAdaptiveScaling(bool enabled) {
+    adaptive_scaling_enabled_ = enabled && adaptive_scaling_ != nullptr;
+    if (verbose_) {
+        std::cout << "[debug] Adaptive scaling "
+                  << (adaptive_scaling_enabled_ ? "enabled" : "disabled") << std::endl;
+    }
+}
+
+std::string GpuExecutor::GetAdaptiveScalingReport() const {
+    if (!adaptive_scaling_enabled_ || !adaptive_scaling_) {
+        return "Adaptive scaling is disabled or unavailable";
+    }
+
+    try {
+        return adaptive_scaling_->GenerateConfigurationReport();
+    } catch (const std::exception& e) {
+        return "Error generating report: " + std::string(e.what());
+    }
+}
+
+void GpuExecutor::SetScalingStrategy(const std::string& strategy) {
+    if (adaptive_scaling_enabled_ && adaptive_scaling_) {
+        try {
+            adaptive_scaling_->SetOptimizationStrategy(strategy);
+            if (verbose_) {
+                std::cout << "[debug] Scaling strategy set to: " << strategy << std::endl;
+            }
+        } catch (const std::exception& e) {
+            if (verbose_) {
+                std::cout << "[warn] Failed to set scaling strategy: " << e.what() << std::endl;
+            }
+        }
+    }
+}
+
+// Enhanced adaptive scaling integration methods
+bool GpuExecutor::ApplyDynamicScalingDuringExecution(double current_throughput_mkeys_per_sec) {
+    if (!adaptive_scaling_enabled_ || !adaptive_scaling_) {
+        return false;
+    }
+
+    try {
+        // Check if current performance is suboptimal
+        double target_throughput = 1000.0; // Default target
+        double performance_ratio = current_throughput_mkeys_per_sec / target_throughput;
+
+        if (performance_ratio < 0.7) { // Performance is significantly below target
+            if (verbose_) {
+                std::cout << "[ADAPTIVE] Performance below target ("
+                          << std::fixed << std::setprecision(1) << current_throughput_mkeys_per_sec
+                          << " vs " << target_throughput << " Mkeys/s), attempting dynamic scaling..." << std::endl;
+            }
+
+            // Get current memory usage
+            size_t free_mem = 0, total_mem = 0;
+            if (cudaMemGetInfo(&free_mem, &total_mem) == cudaSuccess) {
+                size_t free_mem_mb = free_mem / (1024 * 1024);
+
+                // Create current configuration
+                puzzle71::gpu::performance::ParallelismConfiguration current_config;
+                current_config.block_size = config_.block.x;
+                current_config.points_per_thread = config_.points_per_thread;
+                current_config.grid_size = config_.grid.x;
+                current_config.memory_utilization_estimate = 0.7; // Estimate
+
+                // Apply dynamic memory scaling
+                auto scaled_config = adaptive_scaling_->DynamicMemoryScaling(
+                    current_config,
+                    (total_mem - free_mem) / (1024 * 1024), // current usage in MB
+                    free_mem_mb,
+                    0.8 // performance target
+                );
+
+                // Check if scaling would improve performance
+                if (scaled_config.points_per_thread != current_config.points_per_thread ||
+                    scaled_config.block_size != current_config.block_size) {
+
+                    if (verbose_) {
+                        std::cout << "[ADAPTIVE] Applying dynamic scaling: "
+                                  << "ppt " << current_config.points_per_thread << "→" << scaled_config.points_per_thread
+                                  << " block " << current_config.block_size << "→" << scaled_config.block_size
+                                  << " grid " << current_config.grid_size << "→" << scaled_config.grid_size
+                                  << " reason=" << scaled_config.configuration_rationale << std::endl;
+                    }
+
+                    // Apply the new configuration
+                    config_.block = dim3(static_cast<unsigned int>(scaled_config.block_size), 1, 1);
+                    config_.points_per_thread = scaled_config.points_per_thread;
+                    config_.grid = dim3(static_cast<unsigned int>(scaled_config.grid_size), 1, 1);
+                    config_.keys_total = static_cast<std::uint64_t>(config_.grid.x) *
+                                      config_.block.x * config_.points_per_thread;
+
+                    return true;
+                }
+            }
+        }
+    } catch (const std::exception& e) {
+        if (verbose_) {
+            std::cout << "[warn] Dynamic scaling failed: " << e.what() << std::endl;
+        }
+    }
+
+    return false;
+}
+
+std::vector<puzzle71::gpu::performance::ParallelismConfiguration>
+GpuExecutor::GetAdaptiveScalingAlternatives(size_t max_memory_mb) const {
+    if (!adaptive_scaling_enabled_ || !adaptive_scaling_) {
+        return {};
+    }
+
+    try {
+        // Create current configuration
+        puzzle71::gpu::performance::ParallelismConfiguration current_config;
+        current_config.block_size = config_.block.x;
+        current_config.points_per_thread = config_.points_per_thread;
+        current_config.grid_size = config_.grid.x;
+        current_config.memory_utilization_estimate = 0.7; // Estimate
+
+        // Get memory-constrained alternatives
+        return adaptive_scaling_->GetMemoryConstrainedAlternatives(
+            current_config, max_memory_mb, config_.keys_total);
+    } catch (const std::exception& e) {
+        if (verbose_) {
+            std::cout << "[warn] Failed to get scaling alternatives: " << e.what() << std::endl;
+        }
+        return {};
+    }
+}
+
+bool GpuExecutor::PredictMemoryExhaustion(double safety_margin) const {
+    if (!adaptive_scaling_enabled_ || !adaptive_scaling_) {
+        return false;
+    }
+
+    try {
+        // Create current configuration
+        puzzle71::gpu::performance::ParallelismConfiguration current_config;
+        current_config.block_size = config_.block.x;
+        current_config.points_per_thread = config_.points_per_thread;
+        current_config.grid_size = config_.grid.x;
+
+        return adaptive_scaling_->PredictMemoryExhaustion(current_config, config_.keys_total, safety_margin);
+    } catch (const std::exception& e) {
+        if (verbose_) {
+            std::cout << "[warn] Memory exhaustion prediction failed: " << e.what() << std::endl;
+        }
+        return false;
+    }
+}
+
+double GpuExecutor::GetMemoryEfficiencyScore() const {
+    if (!adaptive_scaling_enabled_ || !adaptive_scaling_) {
+        return 0.0;
+    }
+
+    try {
+        // Create current configuration
+        puzzle71::gpu::performance::ParallelismConfiguration current_config;
+        current_config.block_size = config_.block.x;
+        current_config.points_per_thread = config_.points_per_thread;
+        current_config.grid_size = config_.grid.x;
+        current_config.memory_utilization_estimate = 0.7; // Estimate
+
+        return adaptive_scaling_->GetMemoryEfficiencyScore(current_config, config_.keys_total);
+    } catch (const std::exception& e) {
+        if (verbose_) {
+            std::cout << "[warn] Memory efficiency scoring failed: " << e.what() << std::endl;
+        }
+        return 0.0;
+    }
 }
 
 }  // namespace puzzle71::gpu

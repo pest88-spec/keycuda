@@ -5,8 +5,10 @@
 #include "utils/prometheus_exporter.h"
 #include "utils/telemetry_logger.h"
 
-#include <filesystem>
+#include <algorithm>
+#include <cctype>
 #include <cstdlib>
+#include <filesystem>
 #include <iostream>
 #include <optional>
 #include <sstream>
@@ -162,6 +164,25 @@ ParsedArgs ParseArguments(int argc, char* argv[]) {
     return parsed;
 }
 
+std::string TrimCopy(std::string value) {
+    auto not_space = [](unsigned char ch) { return !std::isspace(ch); };
+    value.erase(value.begin(), std::find_if(value.begin(), value.end(), not_space));
+    value.erase(std::find_if(value.rbegin(), value.rend(), not_space).base(), value.end());
+    return value;
+}
+
+bool IsUnsetValue(const std::string& value) {
+    std::string trimmed = TrimCopy(value);
+    if (trimmed.empty()) {
+        return true;
+    }
+    std::string lowered = trimmed;
+    std::transform(lowered.begin(), lowered.end(), lowered.begin(), [](unsigned char ch) {
+        return static_cast<char>(std::tolower(ch));
+    });
+    return lowered == "unset" || lowered == "unknown";
+}
+
 void RunPostAutomation(const std::filesystem::path& repo_root) {
     const std::filesystem::path qa_script = repo_root / "scripts/run-qa.sh";
     const std::filesystem::path report_script = repo_root / "scripts/generate-report.sh";
@@ -212,17 +233,27 @@ int main(int argc, char* argv[]) {
                       << *options.parity_test_scalar_hex << std::endl;
         }
 
-        if (auto cfg = puzzle71::config::LoadConfig("config/puzzle71.yaml")) {
-            options.replay_config = cfg->replay;
-            if (options.operator_id.empty() || options.operator_id == "unset") {
-                options.operator_id = cfg->operator_meta.operator_id;
-            }
-            if (options.operator_purpose.empty() || options.operator_purpose == "development") {
-                options.operator_purpose = cfg->operator_meta.operator_purpose;
-            }
-            if (!options.telemetry_jsonl_dir && !cfg->replay.grid_dim.empty()) {
-                options.telemetry_jsonl_dir = "telemetry";
-            }
+        auto cfg = puzzle71::config::LoadConfig("config/puzzle71.yaml");
+        if (!cfg) {
+            throw std::runtime_error("Missing deterministic configuration: config/puzzle71.yaml not found");
+        }
+
+        options.replay_config = cfg->replay;
+        if (IsUnsetValue(options.operator_id)) {
+            options.operator_id = cfg->operator_meta.operator_id;
+        }
+        if (TrimCopy(options.operator_purpose).empty()) {
+            options.operator_purpose = cfg->operator_meta.operator_purpose;
+        }
+        if (!options.telemetry_jsonl_dir) {
+            options.telemetry_jsonl_dir = cfg->telemetry.jsonl_dir;
+        }
+
+        if (IsUnsetValue(options.operator_id)) {
+            throw std::runtime_error("Operator ID must be provided via --operator-id or config/puzzle71.yaml");
+        }
+        if (TrimCopy(options.operator_purpose).empty()) {
+            throw std::runtime_error("Operator purpose must be provided via --operator-purpose or config/puzzle71.yaml");
         }
 
         puzzle71::Puzzle71Solver solver(options);

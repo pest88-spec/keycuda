@@ -8,6 +8,7 @@
 #include "utils/checkpoint_crypto.h"
 #include "utils/prometheus_exporter.h"
 #include "utils/telemetry_logger.h"
+#include "services/device_metrics.h"
 
 #include <nlohmann/json.hpp>
 
@@ -30,6 +31,7 @@
 #include <cstdint>
 #include <ctime>
 #include <filesystem>
+#include <functional>
 #include <fstream>
 #include <iomanip>
 #include <iostream>
@@ -42,14 +44,14 @@
 #include <stdexcept>
 #include <string>
 #include <thread>
-#include <utility>
+#include <unordered_map>
 #include <unordered_set>
+#include <utility>
 #include <vector>
 
 #include <openssl/bio.h>
 #include <openssl/buffer.h>
 #include <openssl/evp.h>
-#include <openssl/rand.h>
 #include <openssl/sha.h>
 
 #include <cuda_runtime.h>
@@ -167,18 +169,16 @@ std::string IsoTimestampPlusDays(int days) {
 void FillRandomBytes(unsigned char* dest,
                      std::size_t size,
                      std::mt19937_64* deterministic_rng) {
-    if (deterministic_rng != nullptr) {
-        std::size_t offset = 0;
-        while (offset < size) {
-            auto value = (*deterministic_rng)();
-            for (int i = 0; i < 8 && offset < size; ++i) {
-                dest[offset++] = static_cast<unsigned char>(value & 0xFFu);
-                value >>= 8;
-            }
-        }
-    } else {
-        if (RAND_bytes(dest, static_cast<int>(size)) != 1) {
-            throw std::runtime_error("Failed to generate random bytes");
+    if (deterministic_rng == nullptr) {
+        throw std::runtime_error("Deterministic RNG not configured; ensure replay configuration provides a seed");
+    }
+
+    std::size_t offset = 0;
+    while (offset < size) {
+        auto value = (*deterministic_rng)();
+        for (int i = 0; i < 8 && offset < size; ++i) {
+            dest[offset++] = static_cast<unsigned char>(value & 0xFFu);
+            value >>= 8;
         }
     }
 }
@@ -453,7 +453,8 @@ std::string BuildTelemetryPayload(const telemetry::TelemetryOptions& options,
                                   const core::UInt256& next_scalar,
                                   std::uint64_t elapsed_ms,
                                   std::size_t candidate_count,
-                                  std::uint32_t dropped_candidates) {
+                                  std::uint32_t dropped_candidates,
+                                  const std::optional<services::DeviceMetrics>& device_metrics) {
     nlohmann::json shard;
     shard["start"] = shard_start.ToHex();
     shard["end"] = shard_end.ToHex();
@@ -484,6 +485,20 @@ std::string BuildTelemetryPayload(const telemetry::TelemetryOptions& options,
     payload["candidates_dropped"] = dropped_candidates;
     payload["status"] = "ok";
 
+    if (device_metrics) {
+        nlohmann::json metric_json;
+        metric_json["name"] = device_metrics->name;
+        if (!device_metrics->pci_bus_id.empty()) {
+            metric_json["pci_bus_id"] = device_metrics->pci_bus_id;
+        }
+        metric_json["occupancy_pct"] = device_metrics->occupancy;
+        metric_json["memory_utilization_pct"] = device_metrics->memory_utilization;
+        metric_json["memory_total_bytes"] = device_metrics->memory_total_bytes;
+        metric_json["memory_used_bytes"] = device_metrics->memory_used_bytes;
+        metric_json["temperature_celsius"] = device_metrics->temperature;
+        payload["device_metrics"] = std::move(metric_json);
+    }
+
     return payload.dump();
 }
 
@@ -504,11 +519,11 @@ checkpoint::Manifest BuildManifest(std::uint32_t device_id,
     manifest.shard_end = shard_end.ToHex();
     manifest.next_scalar = next_scalar.ToHex();
     manifest.encryption_cipher = "AES-256-GCM";
-    manifest.nonce = "";  // TODO: populate once crypto is implemented.
-    manifest.salt = "";
+    manifest.nonce.clear();
+    manifest.salt.clear();
     manifest.pbkdf2_iterations = 200000;
-    manifest.payload_sha256 = "";  // To be populated after encryption/digest.
-    manifest.retention_expiry = "";
+    manifest.payload_sha256.clear();
+    manifest.retention_expiry.clear();
     std::ostringstream shard_id;
     shard_id << "device-" << device_id;
     manifest.shard_id = shard_id.str();
@@ -732,14 +747,22 @@ void Puzzle71Solver::Run() {
         throw std::runtime_error("No CUDA devices available for scheduling");
     }
 
+    if (!options_.replay_config) {
+        throw std::runtime_error("Deterministic replay configuration missing; ensure config/puzzle71.yaml is present");
+    }
+
+    puzzle71::config::ReplayConfig deterministic_config = *options_.replay_config;
+    if (deterministic_config.deterministic_seed == 0) {
+        throw std::runtime_error("Replay configuration must specify a non-zero deterministic_seed");
+    }
+
     std::optional<gpu::BatchConfig> deterministic_launch_config;
     std::mt19937_64 deterministic_rng;
     std::mt19937_64* deterministic_rng_ptr = nullptr;
-    if (options_.replay_config) {
-        deterministic_launch_config = BuildDeterministicBatchConfig(*options_.replay_config);
-        deterministic_rng.seed(options_.replay_config->deterministic_seed);
-        deterministic_rng_ptr = &deterministic_rng;
-    }
+
+    deterministic_launch_config = BuildDeterministicBatchConfig(deterministic_config);
+    deterministic_rng.seed(deterministic_config.deterministic_seed);
+    deterministic_rng_ptr = &deterministic_rng;
 
     if (replay_manifest) {
         std::uint64_t seed = options_.replay_config
@@ -752,11 +775,13 @@ void Puzzle71Solver::Run() {
                                              ? 1
                                              : replay_manifest->points_per_thread;
         manifest_cfg.deterministic_seed = seed;
-        if (!deterministic_launch_config) {
-            deterministic_rng.seed(seed);
-            deterministic_rng_ptr = &deterministic_rng;
+        if (manifest_cfg.deterministic_seed == 0) {
+            throw std::runtime_error("Replay manifest missing deterministic seed; rebuild manifest with deterministic configuration");
         }
         deterministic_launch_config = BuildDeterministicBatchConfig(manifest_cfg);
+        deterministic_config = manifest_cfg;
+        deterministic_rng.seed(manifest_cfg.deterministic_seed);
+        deterministic_rng_ptr = &deterministic_rng;
         if (replay_manifest->keys_total > 0 && deterministic_launch_config) {
             deterministic_launch_config->keys_total = replay_manifest->keys_total;
         }
@@ -813,6 +838,9 @@ void Puzzle71Solver::Run() {
         std::uint64_t dropped_candidates{0};
     } metrics;
 
+    std::unordered_map<std::uint32_t, services::DeviceMetrics> device_metrics_by_id;
+    std::string last_checkpoint_timestamp;
+
     auto wall_start = std::chrono::steady_clock::now();
 
     std::cout << "[info] Starting GPU traversal" << std::endl;
@@ -820,7 +848,7 @@ void Puzzle71Solver::Run() {
 
     for (const auto& shard : schedule) {
         DebugLog(options_, "[debug] Processing shard [" + shard.start.ToHex() + " : " + shard.end.ToHex() + "]");
-        auto partitions = traversal::PartitionKeyspace(shard, /*slices=*/1);
+        auto partitions = scan::PartitionKeyspace(shard, /*slices=*/1);
         DebugLog(options_, "[debug] Created " + std::to_string(partitions.size()) + " partition(s)");
         for (const auto& partition : partitions) {
                 DebugLog(options_, "[debug] Partition [" + partition.start.ToHex() + " : " + partition.end.ToHex() + "]");
@@ -1031,6 +1059,11 @@ void Puzzle71Solver::Run() {
                 if (next_scalar.Compare(partition.end) > 0) {
                     next_scalar = core::Incremented(partition.end, 1);
                 }
+                auto current_metrics = services::QueryDeviceMetrics(partition.device_id);
+                if (current_metrics) {
+                    device_metrics_by_id[partition.device_id] = *current_metrics;
+                }
+
                 auto telemetry_payload = BuildTelemetryPayload(telemetry_opts,
                                                                partition.device_id,
                                                                chunk_start,
@@ -1039,11 +1072,18 @@ void Puzzle71Solver::Run() {
                                                                next_scalar,
                                                                static_cast<std::uint64_t>(std::round(batch_ms)),
                                                                gpu_results.size(),
-                                                               step.dropped_candidates);
+                                                               step.dropped_candidates,
+                                                               current_metrics);
                 puzzle71::telemetry::LogTelemetryLine(telemetry_opts, telemetry_payload);
 
                 if (options_.enable_checkpoint && checkpoint_writer) {
                     try {
+                        if (!deterministic_rng_ptr) {
+                            throw std::runtime_error("Deterministic RNG unavailable; cannot generate checkpoint material");
+                        }
+                        if (options_.operator_id.empty()) {
+                            throw std::runtime_error("Operator ID must be set before generating checkpoints");
+                        }
                         auto checkpoint_dir = std::filesystem::path("checkpoints");
                         std::filesystem::create_directories(checkpoint_dir);
                         auto timestamp = IsoTimestamp();
@@ -1054,7 +1094,7 @@ void Puzzle71Solver::Run() {
 
                         auto salt = GenerateRandomBytes(16, deterministic_rng_ptr);
                         utils::CheckpointCryptoConfig crypto_config{
-                            options_.operator_id.empty() ? std::string("default-passphrase") : options_.operator_id,
+                            options_.operator_id,
                             std::move(salt),
                             200000};
 
@@ -1086,6 +1126,7 @@ void Puzzle71Solver::Run() {
                         job.payload_json = std::move(payload_json);
 
                         checkpoint_writer->Enqueue(std::move(job));
+                        last_checkpoint_timestamp = timestamp;
                     } catch (const std::exception& ex) {
                         std::cerr << "Checkpoint generation error: " << ex.what() << std::endl;
                     }
@@ -1159,9 +1200,73 @@ finalize_traversal:
 
     if (options_.prometheus_dir) {
         puzzle71::telemetry::PrometheusOptions prom_opts{*options_.prometheus_dir};
-        puzzle71::telemetry::WritePrometheusSnapshot(prom_opts,
-                                                     "# Puzzle71Solver metrics\n"
-                                                     "puzzle71_last_run_status 1\n");
+        std::ostringstream prom_stream;
+        prom_stream << "# HELP puzzle71_last_run_status Puzzle71Solver last run status (1=success)\n";
+        prom_stream << "# TYPE puzzle71_last_run_status gauge\n";
+        prom_stream << "puzzle71_last_run_status 1\n";
+        prom_stream << "# HELP puzzle71_total_keys Total keys processed in the last run\n";
+        prom_stream << "# TYPE puzzle71_total_keys counter\n";
+        prom_stream << "puzzle71_total_keys " << metrics.total_keys << "\n";
+        prom_stream << "# HELP puzzle71_batches_processed Number of batches processed in the last run\n";
+        prom_stream << "# TYPE puzzle71_batches_processed counter\n";
+        prom_stream << "puzzle71_batches_processed " << metrics.batches << "\n";
+        prom_stream << "# HELP puzzle71_avg_keys_per_sec Average keys per second over wall time\n";
+        prom_stream << "# TYPE puzzle71_avg_keys_per_sec gauge\n";
+        prom_stream << "puzzle71_avg_keys_per_sec " << avg_rate_wall << "\n";
+        prom_stream << "# HELP puzzle71_peak_keys_per_sec Peak keys per second across batches\n";
+        prom_stream << "# TYPE puzzle71_peak_keys_per_sec gauge\n";
+        prom_stream << "puzzle71_peak_keys_per_sec " << metrics.peak_keys_per_sec << "\n";
+        if (!last_checkpoint_timestamp.empty()) {
+            prom_stream << "# HELP puzzle71_last_checkpoint Timestamp of the most recent checkpoint\n";
+            prom_stream << "# TYPE puzzle71_last_checkpoint gauge\n";
+            prom_stream << "puzzle71_last_checkpoint{timestamp=\"" << last_checkpoint_timestamp << "\"} 1\n";
+        }
+        if (!device_metrics_by_id.empty()) {
+            prom_stream << "# HELP puzzle71_gpu_occupancy_percent GPU utilization percentage\n";
+            prom_stream << "# TYPE puzzle71_gpu_occupancy_percent gauge\n";
+            prom_stream << "# HELP puzzle71_gpu_memory_utilization_percent GPU memory utilization percentage\n";
+            prom_stream << "# TYPE puzzle71_gpu_memory_utilization_percent gauge\n";
+            prom_stream << "# HELP puzzle71_gpu_memory_used_bytes GPU memory consumption in bytes\n";
+            prom_stream << "# TYPE puzzle71_gpu_memory_used_bytes gauge\n";
+            prom_stream << "# HELP puzzle71_gpu_temperature_celsius GPU temperature in Celsius\n";
+            prom_stream << "# TYPE puzzle71_gpu_temperature_celsius gauge\n";
+        }
+        for (const auto& [id, snapshot] : device_metrics_by_id) {
+            prom_stream << "puzzle71_gpu_occupancy_percent{device=\"" << id << "\"";
+            if (!snapshot.name.empty()) {
+                prom_stream << ",name=\"" << snapshot.name << "\"";
+            }
+            if (!snapshot.pci_bus_id.empty()) {
+                prom_stream << ",pci_bus_id=\"" << snapshot.pci_bus_id << "\"";
+            }
+            prom_stream << "} " << snapshot.occupancy << "\n";
+            prom_stream << "puzzle71_gpu_memory_utilization_percent{device=\"" << id << "\"";
+            if (!snapshot.name.empty()) {
+                prom_stream << ",name=\"" << snapshot.name << "\"";
+            }
+            if (!snapshot.pci_bus_id.empty()) {
+                prom_stream << ",pci_bus_id=\"" << snapshot.pci_bus_id << "\"";
+            }
+            prom_stream << "} " << snapshot.memory_utilization << "\n";
+            prom_stream << "puzzle71_gpu_memory_used_bytes{device=\"" << id << "\"";
+            if (!snapshot.name.empty()) {
+                prom_stream << ",name=\"" << snapshot.name << "\"";
+            }
+            if (!snapshot.pci_bus_id.empty()) {
+                prom_stream << ",pci_bus_id=\"" << snapshot.pci_bus_id << "\"";
+            }
+            prom_stream << "} " << snapshot.memory_used_bytes << "\n";
+            prom_stream << "puzzle71_gpu_temperature_celsius{device=\"" << id << "\"";
+            if (!snapshot.name.empty()) {
+                prom_stream << ",name=\"" << snapshot.name << "\"";
+            }
+            if (!snapshot.pci_bus_id.empty()) {
+                prom_stream << ",pci_bus_id=\"" << snapshot.pci_bus_id << "\"";
+            }
+            prom_stream << "} " << snapshot.temperature << "\n";
+        }
+
+        puzzle71::telemetry::WritePrometheusSnapshot(prom_opts, prom_stream.str());
     }
 
     if (replay_manifest) {

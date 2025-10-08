@@ -53,6 +53,7 @@ set(PUZZLE71_CORE_SOURCES
   src/scheduler/range_scheduler.cpp
   src/traversal/puzzle71_partition.cpp
   src/services/device_metrics.cpp
+  src/services/operator_metadata_validator.cpp
   src/config/puzzle71_config.cpp
   src/crypto/secp256k1_adapter.cpp
   src/ComputeCore/adapters/reference/gpu_context.cpp
@@ -60,6 +61,21 @@ set(PUZZLE71_CORE_SOURCES
   src/ComputeCore/gpu/batch_planner.cpp
   src/ComputeCore/gpu/gpu_executor.cpp
   src/ComputeCore/gpu/device_buffers.cpp
+  src/ComputeCore/gpu/memory_manager.cpp
+  src/ComputeCore/gpu/performance/gpu_performance_manager.cpp
+  src/ComputeCore/gpu/performance/synchronization_optimizer.cpp
+  src/ComputeCore/gpu/performance/memory_optimizer.cpp
+  src/ComputeCore/gpu/performance/adaptive_parallelism_scaling.cpp
+  src/ComputeCore/gpu/performance/accuracy_validator.cpp
+  src/ComputeCore/gpu/performance/performance_benchmark.cpp
+  src/ComputeCore/gpu/performance/resource_profiler.cpp
+  src/ComputeCore/gpu/performance/error_handler.cpp
+  src/ComputeCore/gpu/performance/metrics_collector.cpp
+  src/ComputeCore/gpu/performance/bandwidth_validator.cpp
+  src/ComputeCore/gpu/performance/fused_initialization_kernel.cpp
+  src/ComputeCore/gpu/performance/fallback_manager.cpp
+  src/ComputeCore/gpu/performance/performance_logger.cpp
+  src/ComputeCore/gpu/performance/worm_audit_logger.cpp
   src/ComputeCore/adapters/reference/conversions.cpp
 )
 
@@ -100,6 +116,9 @@ target_include_directories(puzzle71_core PUBLIC
   src/services
   src/compare
   src/core
+  src/ComputeCore
+  src/ComputeCore/gpu
+  src/ComputeCore/gpu/performance
   src/extracted/bitcrack
   src/extracted/bitcrack/AddressUtil
   src/extracted/bitcrack/CryptoUtil
