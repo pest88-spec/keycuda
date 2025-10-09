@@ -1,4 +1,4 @@
-#include "KeyhuntCore/adapters/vanitysearch/gpu_adapter.h"
+#include "ComputeCore/adapters/vanitysearch/gpu_adapter.h"
 
 namespace vanitysearch_adapter {
 

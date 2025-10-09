@@ -1,4 +1,4 @@
-#include "scan/puzzle71_partition.h"
+#include "traversal/puzzle71_partition.h"
 
 #include "core/uint256.h"
 

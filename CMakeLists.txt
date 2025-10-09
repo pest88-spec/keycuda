@@ -1,8 +1,11 @@
-cmake_minimum_required(VERSION 3.24)
+cmake_minimum_required(VERSION 3.22)
 
 project(Puzzle71Solver VERSION 0.1.0 LANGUAGES CXX CUDA)
 
 option(SECP256K1_AVAILABLE "Enable bitcoin-core/secp256k1 parity checks" ON)
+option(ENABLE_INTEGRATION_SYSTEM "Enable third-party library integration system" ON)
+option(OFFLINE_BUILD "Configure for offline builds without external dependencies" OFF)
+option(STRICT_ATTRIBUTION "Enforce 100% attribution coverage for extracted libraries" ON)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -30,6 +33,15 @@ add_compile_options(
   "$<$<COMPILE_LANGUAGE:CUDA>:-lineinfo>"
 )
 
+# Integration management sources
+set(INTEGRATION_SOURCES
+  src/integration/integration_manager.cpp
+  src/integration/logging/integration_logger.cpp
+  src/integration/verification/integrity_verifier.cpp
+  src/integration/verification/digest_verifier.cpp
+  src/integration/metrics/baseline_measurer.cpp
+)
+
 set(PUZZLE71_CORE_SOURCES
   src/main.cpp
   src/solver.cpp
@@ -41,7 +53,7 @@ set(PUZZLE71_CORE_SOURCES
   src/utils/telemetry_logger.cpp
   src/utils/prometheus_exporter.cpp
   src/scheduler/range_scheduler.cpp
-  src/scan/puzzle71_partition.cpp
+  src/traversal/puzzle71_partition.cpp
   src/services/device_metrics.cpp
   src/config/puzzle71_config.cpp
   src/crypto/secp256k1_adapter.cpp
@@ -51,6 +63,7 @@ set(PUZZLE71_CORE_SOURCES
   src/ComputeCore/gpu/gpu_executor.cpp
   src/ComputeCore/gpu/device_buffers.cpp
   src/ComputeCore/adapters/reference/conversions.cpp
+  ${INTEGRATION_SOURCES}
 )
 
 add_executable(Puzzle71Solver ${PUZZLE71_CORE_SOURCES})
@@ -65,10 +78,14 @@ target_include_directories(Puzzle71Solver PRIVATE
   src/utils
   src/config
   src/scheduler
-  src/scan
+  src/traversal
   src/services
   src/compare
   src/core
+  src/integration
+  src/integration/logging
+  src/integration/verification
+  src/integration/config
   src/extracted/bitcrack
   src/extracted/bitcrack/AddressUtil
   src/extracted/bitcrack/CryptoUtil
@@ -79,18 +96,53 @@ target_include_directories(Puzzle71Solver PRIVATE
   src/extracted/bitcrack/util
   src/extracted/bitcrack/Logger
   src/extracted/bitcrack/secp256k1lib
+  # secp256k1-zkp integration (when available)
+  src/extracted/secp256k1-zkp/include
+  src/extracted/secp256k1-zkp/src
 )
 target_link_libraries(Puzzle71Solver PRIVATE CUDA::cudart)
 
-if(SECP256K1_AVAILABLE)
+# Integration system configuration (moved after target creation)
+if(ENABLE_INTEGRATION_SYSTEM)
+  target_compile_definitions(Puzzle71Solver PRIVATE ENABLE_INTEGRATION_SYSTEM=1)
+  message(STATUS "Integration system enabled")
+else()
+  target_compile_definitions(Puzzle71Solver PRIVATE ENABLE_INTEGRATION_SYSTEM=0)
+  message(STATUS "Integration system disabled")
+endif()
+
+if(OFFLINE_BUILD)
+  target_compile_definitions(Puzzle71Solver PRIVATE OFFLINE_BUILD=1)
+  message(STATUS "Configuring for offline build")
+endif()
+
+if(STRICT_ATTRIBUTION)
+  target_compile_definitions(Puzzle71Solver PRIVATE STRICT_ATTRIBUTION=1)
+  message(STATUS "Strict attribution enforcement enabled")
+endif()
+
+# Configure secp256k1 support based on offline mode and availability
+# Check if bitcoin-core submodule is available and initialized
+set(BITCOIN_CORE_SECP256K1_AVAILABLE FALSE)
+if(EXISTS "${CMAKE_SOURCE_DIR}/third_party/bitcoin-core-secp256k1/CMakeLists.txt")
+  set(BITCOIN_CORE_SECP256K1_AVAILABLE TRUE)
+endif()
+
+if(SECP256K1_AVAILABLE AND NOT OFFLINE_BUILD AND BITCOIN_CORE_SECP256K1_AVAILABLE)
   target_compile_definitions(Puzzle71Solver PRIVATE SECP256K1_AVAILABLE=1)
   set(SECP256K1_BUILD_TESTS OFF CACHE BOOL "" FORCE)
   set(SECP256K1_BUILD_BENCHMARK OFF CACHE BOOL "" FORCE)
   set(SECP256K1_BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
   add_subdirectory(third_party/bitcoin-core-secp256k1)
   target_link_libraries(Puzzle71Solver PRIVATE secp256k1)
+  message(STATUS "Using bitcoin-core secp256k1 (external submodule)")
+elseif(AVAILABLE_SECP256K1_ZKP_SOURCES)
+  # Use extracted secp256k1-zkp instead of external dependency
+  target_compile_definitions(Puzzle71Solver PRIVATE SECP256K1_AVAILABLE=1 SECP256K1_ZKP_EXTRACTED=1)
+  message(STATUS "Using extracted secp256k1-zkp (offline/submodule-free mode)")
 else()
   target_compile_definitions(Puzzle71Solver PRIVATE SECP256K1_AVAILABLE=0)
+  message(STATUS "secp256k1 support disabled (submodule not available)")
 endif()
 
 set_target_properties(Puzzle71Solver PROPERTIES CUDA_ARCHITECTURES "75;86;89;90")
@@ -129,42 +181,96 @@ set_source_files_properties(${BITCRACK_SOURCES} PROPERTIES
   COMPILE_FLAGS "-w"  # Disable all warnings for extracted code
 )
 
-# Enable testing / GoogleTest via FetchContent
-include(FetchContent)
-FetchContent_Declare(
-  nlohmann_json
-  URL https://github.com/nlohmann/json/releases/download/v3.11.3/json.tar.xz
+# secp256k1-zkp extracted sources (when available)
+set(SECP256K1_ZKP_SOURCES
+  src/extracted/secp256k1-zkp/src/secp256k1.c
+  src/extracted/secp256k1-zkp/src/precomputed_ecmult.c
+  src/extracted/secp256k1-zkp/src/precomputed_ecmult_gen.c
 )
-FetchContent_MakeAvailable(nlohmann_json)
-set(gtest_force_shared_crt ON CACHE BOOL "" FORCE)
-FetchContent_Declare(
-  googletest
-  URL https://github.com/google/googletest/archive/refs/tags/v1.14.0.zip
+
+# Add all header files for dependency tracking
+file(GLOB_RECURSE SECP256K1_ZKP_HEADERS
+  CONFIGURE_DEPENDS
+  src/extracted/secp256k1-zkp/include/*.h
+  src/extracted/secp256k1-zkp/src/*.h
 )
-FetchContent_MakeAvailable(googletest)
 
-enable_testing()
-
-file(GLOB_RECURSE PUZZLE71_TEST_SOURCES CONFIGURE_DEPENDS tests/*.cpp tests/*.cu)
-if(PUZZLE71_TEST_SOURCES)
-  add_executable(puzzle71_tests ${PUZZLE71_TEST_SOURCES})
-  target_link_libraries(puzzle71_tests PRIVATE GTest::gtest_main GTest::gmock_main Puzzle71Solver)
-  target_link_libraries(puzzle71_tests PRIVATE
-    OpenSSL::SSL
-    OpenSSL::Crypto
-    nlohmann_json::nlohmann_json
-    CUDA::cudart
-  )
-  if(TARGET secp256k1)
-    target_link_libraries(puzzle71_tests PRIVATE secp256k1)
+# Add secp256k1-zkp sources if they exist
+set(AVAILABLE_SECP256K1_ZKP_SOURCES "")
+foreach(source_file ${SECP256K1_ZKP_SOURCES})
+  if(EXISTS ${CMAKE_SOURCE_DIR}/${source_file})
+    list(APPEND AVAILABLE_SECP256K1_ZKP_SOURCES ${source_file})
   endif()
-  target_compile_definitions(puzzle71_tests PRIVATE PUZZLE71_TESTING=1)
-  target_include_directories(puzzle71_tests PRIVATE
-    src
-    src/extracted/bitcrack
-    third_party/bitcoin-core-secp256k1/include
+endforeach()
+
+# Add header files if sources exist
+if(AVAILABLE_SECP256K1_ZKP_SOURCES)
+  list(APPEND AVAILABLE_SECP256K1_ZKP_SOURCES ${SECP256K1_ZKP_HEADERS})
+  target_sources(Puzzle71Solver PRIVATE ${AVAILABLE_SECP256K1_ZKP_SOURCES})
+
+  # Suppress warnings for extracted secp256k1-zkp code (preserve original behavior)
+  set_source_files_properties(${AVAILABLE_SECP256K1_ZKP_SOURCES} PROPERTIES
+    COMPILE_FLAGS "-w"  # Disable all warnings for extracted code
   )
-  add_test(NAME puzzle71_tests COMMAND puzzle71_tests)
+
+  list(LENGTH AVAILABLE_SECP256K1_ZKP_SOURCES secp256k1_zkp_file_count)
+  message(STATUS "Added ${secp256k1_zkp_file_count} secp256k1-zkp files (sources + headers)")
+endif()
+
+# Enable testing / GoogleTest via FetchContent (conditional on offline build)
+if(NOT OFFLINE_BUILD)
+  include(FetchContent)
+  FetchContent_Declare(
+    nlohmann_json
+    URL https://github.com/nlohmann/json/releases/download/v3.11.3/json.tar.xz
+  )
+  FetchContent_MakeAvailable(nlohmann_json)
+  set(gtest_force_shared_crt ON CACHE BOOL "" FORCE)
+  FetchContent_Declare(
+    googletest
+    URL https://github.com/google/googletest/archive/refs/tags/v1.14.0.zip
+  )
+  FetchContent_MakeAvailable(googletest)
+else()
+  message(STATUS "Offline build: Skipping FetchContent dependencies (nlohmann_json, googletest)")
+  # Create stub targets for offline mode
+  if(NOT TARGET nlohmann_json::nlohmann_json)
+    add_library(nlohmann_json INTERFACE)
+    target_include_directories(nlohmann_json INTERFACE /usr/include)  # System fallback
+    add_library(nlohmann_json::nlohmann_json ALIAS nlohmann_json)
+  endif()
+endif()
+
+# Enable testing only when not in offline mode
+if(NOT OFFLINE_BUILD)
+  enable_testing()
+
+  file(GLOB_RECURSE PUZZLE71_TEST_SOURCES CONFIGURE_DEPENDS tests/*.cpp tests/*.cu)
+  if(PUZZLE71_TEST_SOURCES AND TARGET GTest::gtest_main)
+    add_executable(puzzle71_tests ${PUZZLE71_TEST_SOURCES})
+    target_link_libraries(puzzle71_tests PRIVATE GTest::gtest_main GTest::gmock_main Puzzle71Solver)
+    target_link_libraries(puzzle71_tests PRIVATE
+      OpenSSL::SSL
+      OpenSSL::Crypto
+      nlohmann_json::nlohmann_json
+      CUDA::cudart
+    )
+    if(TARGET secp256k1)
+      target_link_libraries(puzzle71_tests PRIVATE secp256k1)
+    endif()
+    target_compile_definitions(puzzle71_tests PRIVATE PUZZLE71_TESTING=1)
+    target_include_directories(puzzle71_tests PRIVATE
+      src
+      src/extracted/bitcrack
+    )
+    # Include bitcoin-core secp256k1 only if available
+    if(EXISTS "${CMAKE_SOURCE_DIR}/third_party/bitcoin-core-secp256k1/include")
+      target_include_directories(puzzle71_tests PRIVATE third_party/bitcoin-core-secp256k1/include)
+    endif()
+    add_test(NAME puzzle71_tests COMMAND puzzle71_tests)
+  endif()
+else()
+  message(STATUS "Offline build: Testing disabled")
 endif()
 
 # Benchmark helper target placeholder
@@ -173,3 +279,48 @@ add_custom_target(run-benchmarks
   WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
   COMMENT "Execute GPU benchmark harness"
 )
+
+# Integration system targets
+if(ENABLE_INTEGRATION_SYSTEM)
+  # Integration verification target
+  add_custom_target(verify-integration
+    COMMAND ${CMAKE_COMMAND} -E echo "Verifying integration system..."
+    COMMAND ${CMAKE_SOURCE_DIR}/scripts/verify-integration.sh
+    WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
+    COMMENT "Verify third-party library integration"
+  )
+
+  # Attribution verification target
+  add_custom_target(verify-attribution
+    COMMAND ${CMAKE_COMMAND} -E echo "Verifying attribution coverage..."
+    COMMAND ${CMAKE_SOURCE_DIR}/scripts/verify-attribution.sh
+    WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
+    COMMENT "Verify attribution coverage for all integrated libraries"
+  )
+
+  # Integration setup target
+  add_custom_target(setup-integration
+    COMMAND ${CMAKE_COMMAND} -E echo "Setting up integration infrastructure..."
+    COMMAND ${CMAKE_SOURCE_DIR}/scripts/setup-integration.sh
+    WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
+    COMMENT "Setup third-party library integration infrastructure"
+  )
+
+  # Dependency integration target
+  add_custom_target(integrate-dependencies
+    COMMAND ${CMAKE_COMMAND} -E echo "Integrating third-party dependencies..."
+    COMMAND ${CMAKE_SOURCE_DIR}/scripts/integrate-dependencies.sh
+    WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
+    COMMENT "Integrate all third-party dependencies locally"
+  )
+
+  # Integration test target
+  add_custom_target(test-integration
+    COMMAND ${CMAKE_COMMAND} --build ${CMAKE_BINARY_DIR} --target verify-integration
+    COMMAND ${CMAKE_COMMAND} --build ${CMAKE_BINARY_DIR} --target verify-attribution
+    COMMENT "Run all integration verification tests"
+  )
+
+  # Create integration dependencies
+  add_dependencies(test-integration verify-integration verify-attribution)
+endif()
