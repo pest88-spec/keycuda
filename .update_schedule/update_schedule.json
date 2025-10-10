@@ -1,0 +1,21 @@
+{
+  "schedule_version": "1.0",
+  "created_at": "2025-10-10T04:40:44Z",
+  "last_updated": "2025-10-10T04:40:44Z",
+  "update_policies": {
+    "auto_check_enabled": true,
+    "auto_update_enabled": false,
+    "schedule_frequency": "daily"
+  },
+  "dependency_schedules": {
+    "nlohmann_json": {
+      "auto_update": true,
+      "update_frequency": "weekly",
+      "last_check": ""
+    }
+  },
+  "schedule_stats": {
+    "total_checks": 0,
+    "successful_updates": 0
+  }
+}

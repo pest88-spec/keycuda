@@ -1,0 +1,11 @@
+{
+  "rollback_id": "rollback_20251010_132133_76568",
+  "description": "Test rollback for T050 validation",
+  "backup_type": "full",
+  "created_at": "2025-10-10T05:21:33Z",
+  "created_by": "T050 Version Rollback System",
+  "rollback_system": "cpp_manager_validated",
+  "project_root": "/root/keycuda",
+  "dependency_manifest_backup": "/root/keycuda/.dependency_cache/dependency_manifest.json",
+  "version_history_backup": "/root/keycuda/.dependency_cache/version_history.json"
+}

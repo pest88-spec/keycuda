@@ -1,0 +1,10 @@
+{
+  "overall_score": 0,
+  "overall_status": "failed",
+  "platforms_tested": 0,
+  "platforms_passed": 0,
+  "success_rate_percent": 0,
+  "min_threshold": "80",
+  "result_directory": "/root/keycuda/deployment/cross-platform/verification-1760067370",
+  "verification_timestamp": 1760067370.885482
+}

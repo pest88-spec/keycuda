@@ -1,0 +1,76 @@
+{
+  "benchmark_config_version": "1.0",
+  "created_timestamp": "2025-10-10T07:06:42Z",
+  "benchmark_types": {
+    "throughput": {
+      "description": "GPU throughput benchmarking",
+      "default_duration": 300,
+      "iterations": 3,
+      "warmup_time": 30
+    },
+    "memory": {
+      "description": "Memory usage benchmarking",
+      "test_sizes": [
+        "small",
+        "medium",
+        "large"
+      ],
+      "monitor_interval": 5
+    },
+    "scalability": {
+      "description": "Multi-GPU scalability benchmarking",
+      "thread_counts": [
+        1,
+        2,
+        4,
+        8
+      ],
+      "duration_per_test": 120
+    },
+    "regression": {
+      "description": "Performance regression testing",
+      "baseline_comparison": true,
+      "regression_threshold": 5
+    }
+  },
+  "test_scenarios": {
+    "small_range": {
+      "start": "0000000000000000000000000000000000000000000000000000000000000000",
+      "end": "00000000000000000000000000000000000000000000000000000000000000FF",
+      "description": "Small range (256 keys) for quick testing"
+    },
+    "medium_range": {
+      "start": "0000000000000000000000000000000000000000000000000000000000000000",
+      "end": "000000000000000000000000000000000000000000000000000000000000FFFF",
+      "description": "Medium range (65536 keys) for standard testing"
+    },
+    "large_range": {
+      "start": "0000000000000000000000000000000000000000000000000000000000000000",
+      "end": "00000000FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF",
+      "description": "Large range for comprehensive testing"
+    }
+  },
+  "gpu_settings": {
+    "default_device": 0,
+    "devices_to_test": "auto",
+    "memory_limit_mb": 8192
+  },
+  "output_settings": {
+    "save_raw_data": true,
+    "generate_charts": true,
+    "export_format": [
+      "json",
+      "csv"
+    ],
+    "chart_types": [
+      "throughput",
+      "memory",
+      "scalability"
+    ]
+  },
+  "regression_settings": {
+    "auto_baseline_update": false,
+    "alert_on_regression": true,
+    "min_samples_for_regression": 3
+  }
+}

@@ -1,0 +1,333 @@
+{
+  "test_configurations_version": "1.0",
+  "created_timestamp": "",
+  "description": "Detailed configuration for individual validation tests",
+  "tests": {
+    "dependency_check": {
+      "description": "Check dependency integrity and versions",
+      "category": "dependency",
+      "critical": true,
+      "default_timeout": 300,
+      "retry_count": 2,
+      "dependencies": [],
+      "validation_logic": {
+        "check_manifest": true,
+        "check_compatibility": true,
+        "check_versions": true,
+        "check_conflicts": true
+      },
+      "success_criteria": {
+        "required_checks_passed": 4,
+        "allow_warnings": true,
+        "max_warnings": 3
+      },
+      "error_handling": {
+        "on_timeout": "skip",
+        "on_failure": "critical",
+        "retry_on_failure": true
+      }
+    },
+    "build_check": {
+      "description": "Build project from source",
+      "category": "build",
+      "critical": true,
+      "default_timeout": 1800,
+      "retry_count": 1,
+      "dependencies": ["dependency_check"],
+      "validation_logic": {
+        "clean_build": true,
+        "build_type": "RelWithDebInfo",
+        "parallel_build": true,
+        "verify_artifacts": true
+      },
+      "success_criteria": {
+        "build_success": true,
+        "artifacts_verified": true,
+        "min_artifacts": 3
+      },
+      "error_handling": {
+        "on_timeout": "critical",
+        "on_failure": "critical",
+        "retry_on_failure": false
+      }
+    },
+    "basic_runtime": {
+      "description": "Basic runtime functionality test",
+      "category": "runtime",
+      "critical": true,
+      "default_timeout": 600,
+      "retry_count": 3,
+      "dependencies": ["build_check"],
+      "validation_logic": {
+        "test_duration": 60,
+        "test_scenarios": ["help", "version", "device_list", "small_search"],
+        "memory_limit": "1GB"
+      },
+      "success_criteria": {
+        "min_scenarios_passed": 3,
+        "allow_memory_leaks": false,
+        "max_response_time": 30
+      },
+      "error_handling": {
+        "on_timeout": "warning",
+        "on_failure": "critical",
+        "retry_on_failure": true
+      }
+    },
+    "comprehensive_runtime": {
+      "description": "Comprehensive runtime testing",
+      "category": "runtime",
+      "critical": true,
+      "default_timeout": 1800,
+      "retry_count": 2,
+      "dependencies": ["basic_runtime"],
+      "validation_logic": {
+        "test_duration": 300,
+        "test_scenarios": ["stress_test", "memory_test", "multi_thread_test", "edge_case_test"],
+        "data_sizes": ["small", "medium", "large"],
+        "thread_counts": [1, 2, 4, 8]
+      },
+      "success_criteria": {
+        "min_success_rate": 0.85,
+        "max_crashes": 0,
+        "memory_growth_limit": "10%"
+      },
+      "error_handling": {
+        "on_timeout": "critical",
+        "on_failure": "critical",
+        "retry_on_failure": true
+      }
+    },
+    "performance_baseline": {
+      "description": "Establish performance baseline",
+      "category": "performance",
+      "critical": false,
+      "default_timeout": 1200,
+      "retry_count": 3,
+      "dependencies": ["comprehensive_runtime"],
+      "validation_logic": {
+        "benchmark_iterations": 3,
+        "warmup_iterations": 1,
+        "data_sizes": ["medium"],
+        "metrics": ["throughput", "latency", "memory_usage", "cpu_utilization"]
+      },
+      "success_criteria": {
+        "min_iterations_completed": 2,
+        "baseline_stability": true,
+        "outlier_tolerance": "20%"
+      },
+      "error_handling": {
+        "on_timeout": "warning",
+        "on_failure": "warning",
+        "retry_on_failure": true
+      }
+    },
+    "performance_regression": {
+      "description": "Check for performance regression",
+      "category": "performance",
+      "critical": false,
+      "default_timeout": 1200,
+      "retry_count": 2,
+      "dependencies": ["performance_baseline"],
+      "validation_logic": {
+        "baseline_comparison": true,
+        "regression_threshold": 5.0,
+        "benchmark_iterations": 5,
+        "statistical_significance": true
+      },
+      "success_criteria": {
+        "regression_detected": false,
+        "improvement_required": false,
+        "statistical_confidence": 0.95
+      },
+      "error_handling": {
+        "on_timeout": "warning",
+        "on_failure": "warning",
+        "retry_on_failure": false
+      }
+    },
+    "compatibility_check": {
+      "description": "Check compatibility with system and dependencies",
+      "category": "compatibility",
+      "critical": true,
+      "default_timeout": 900,
+      "retry_count": 1,
+      "dependencies": ["dependency_check"],
+      "validation_logic": {
+        "system_compatibility": true,
+        "dependency_compatibility": true,
+        "version_constraints": true,
+        "library_conflicts": true
+      },
+      "success_criteria": {
+        "no_conflicts": true,
+        "all_constraints_satisfied": true,
+        "min_compatibility_score": 80
+      },
+      "error_handling": {
+        "on_timeout": "warning",
+        "on_failure": "critical",
+        "retry_on_failure": false
+      }
+    },
+    "security_scan": {
+      "description": "Security vulnerability scanning",
+      "category": "security",
+      "critical": false,
+      "default_timeout": 600,
+      "retry_count": 1,
+      "dependencies": [],
+      "validation_logic": {
+        "vulnerability_scan": true,
+        "code_analysis": true,
+        "dependency_audit": true,
+        "configuration_review": true
+      },
+      "success_criteria": {
+        "no_critical_vulnerabilities": true,
+        "max_high_severity": 0,
+        "max_medium_severity": 5
+      },
+      "error_handling": {
+        "on_timeout": "warning",
+        "on_failure": "warning",
+        "retry_on_failure": false
+      }
+    },
+    "integration_tests": {
+      "description": "Run integration test suite",
+      "category": "integration",
+      "critical": true,
+      "default_timeout": 2400,
+      "retry_count": 1,
+      "dependencies": ["comprehensive_runtime"],
+      "validation_logic": {
+        "test_suite": "puzzle71_tests",
+        "parallel_execution": true,
+        "test_categories": ["unit", "integration", "system"],
+        "coverage_requirements": true
+      },
+      "success_criteria": {
+        "min_test_coverage": 0.80,
+        "max_failed_tests": 0,
+        "all_critical_tests_pass": true
+      },
+      "error_handling": {
+        "on_timeout": "critical",
+        "on_failure": "critical",
+        "retry_on_failure": false
+      }
+    },
+    "stress_tests": {
+      "description": "Stress testing and load testing",
+      "category": "stress",
+      "critical": false,
+      "default_timeout": 3600,
+      "retry_count": 1,
+      "dependencies": ["comprehensive_runtime"],
+      "validation_logic": {
+        "stress_duration": 1800,
+        "load_levels": ["normal", "high", "extreme"],
+        "monitor_resources": true,
+        "crash_detection": true
+      },
+      "success_criteria": {
+        "no_crashes": true,
+        "max_memory_growth": "15%",
+        "max_response_degradation": "25%"
+      },
+      "error_handling": {
+        "on_timeout": "warning",
+        "on_failure": "warning",
+        "retry_on_failure": false
+      }
+    },
+    "memory_leak": {
+      "description": "Memory leak detection",
+      "category": "memory",
+      "critical": false,
+      "default_timeout": 1800,
+      "retry_count": 2,
+      "dependencies": ["comprehensive_runtime"],
+      "validation_logic": {
+        "valgrind_analysis": true,
+        "memory_profiling": true,
+        "leak_detection_sensitivity": "high",
+        "long_running_test": true
+      },
+      "success_criteria": {
+        "no_definite_leaks": true,
+        "max_indirect_leaks": 5,
+        "max_memory_growth": "5MB"
+      },
+      "error_handling": {
+        "on_timeout": "warning",
+        "on_failure": "warning",
+        "retry_on_failure": true
+      }
+    },
+    "cross_platform": {
+      "description": "Cross-platform compatibility testing",
+      "category": "compatibility",
+      "critical": false,
+      "default_timeout": 1800,
+      "retry_count": 1,
+      "dependencies": ["build_check"],
+      "validation_logic": {
+        "platform_targets": ["linux", "windows", "darwin"],
+        "architecture_targets": ["x86_64", "aarch64"],
+        "portability_checks": true,
+        "path_handling": true
+      },
+      "success_criteria": {
+        "all_platforms_compatible": true,
+        "no_platform_specific_issues": true,
+        "portability_score": 90
+      },
+      "error_handling": {
+        "on_timeout": "warning",
+        "on_failure": "warning",
+        "retry_on_failure": false
+      }
+    }
+  },
+  "configuration_rules": {
+    "required_fields": ["description", "category", "critical", "default_timeout", "validation_logic", "success_criteria"],
+    "timeout_limits": {
+      "min_timeout": 60,
+      "max_timeout": 7200
+    },
+    "retry_limits": {
+      "min_retries": 0,
+      "max_retries": 5
+    },
+    "dependency_validation": true,
+    "circular_dependency_check": true
+  },
+  "test_categories": {
+    "dependency": "Dependency management and versioning",
+    "build": "Build system and compilation",
+    "runtime": "Runtime functionality and execution",
+    "performance": "Performance metrics and benchmarking",
+    "compatibility": "System and dependency compatibility",
+    "security": "Security vulnerability scanning",
+    "integration": "Integration testing",
+    "stress": "Stress and load testing",
+    "memory": "Memory management and leak detection",
+    "cross_platform": "Cross-platform compatibility"
+  },
+  "execution_order": [
+    "dependency_check",
+    "build_check",
+    "basic_runtime",
+    "comprehensive_runtime",
+    "performance_baseline",
+    "performance_regression",
+    "compatibility_check",
+    "security_scan",
+    "integration_tests",
+    "stress_tests",
+    "memory_leak",
+    "cross_platform"
+  ]
+}

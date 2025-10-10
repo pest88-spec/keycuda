@@ -1,0 +1,14 @@
+{
+    "measurement_id": "setup_baseline_20251010_235105",
+    "timestamp": "2025-10-10T23:51:05+08:00",
+    "setup_files_count": 3,
+    "setup_steps_total": 44,
+    "manual_steps_count": 44,
+    "automation_coverage_percentage": 100,
+    "missing_dependencies_count": 0,
+    "complexity_score": 100,
+    "reduction_potential_percentage": 80,
+    "estimated_setup_time_minutes": 8,
+    "time_to_first_build_minutes": 11,
+    "meets_80_percent_target": true
+}

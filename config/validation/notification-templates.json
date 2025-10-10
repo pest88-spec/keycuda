@@ -1,0 +1,203 @@
+{
+  "notification_templates_version": "1.0",
+  "created_timestamp": "",
+  "description": "Notification templates for validation events",
+  "templates": {
+    "validation_success": {
+      "title_template": "✅ Validation Success: {validation_type}",
+      "message_template": "Dependency validation completed successfully!\n\nValidation Details:\n- Type: {validation_type}\n- Level: {validation_level}\n- Duration: {duration}\n- Tests Passed: {passed_tests}/{total_tests}\n- Success Rate: {success_rate}%\n\nTimestamp: {timestamp}",
+      "notification_type": "success",
+      "channels": ["email", "log"],
+      "conditions": {
+        "always_send": false,
+        "min_success_rate": 100
+      }
+    },
+    "validation_failure": {
+      "title_template": "❌ Validation Failure: {validation_type}",
+      "message_template": "Dependency validation failed!\n\nFailure Details:\n- Type: {validation_type}\n- Level: {validation_level}\n- Duration: {duration}\n- Failed Tests: {failed_tests}/{total_tests}\n- Success Rate: {success_rate}%\n\nFailed Tests:\n{failed_test_list}\n\nAction Required: {action_required}\n\nTimestamp: {timestamp}",
+      "notification_type": "failure",
+      "channels": ["email", "log", "webhook"],
+      "conditions": {
+        "always_send": true,
+        "min_failure_count": 1
+      }
+    },
+    "validation_warning": {
+      "title_template": "⚠️ Validation Warning: {validation_type}",
+      "message_template": "Dependency validation completed with warnings!\n\nWarning Details:\n- Type: {validation_type}\n- Level: {validation_level}\n- Duration: {duration}\n- Warnings: {warning_count}\n- Success Rate: {success_rate}%\n\nWarnings:\n{warning_list}\n\nRecommended Actions: {recommended_actions}\n\nTimestamp: {timestamp}",
+      "notification_type": "warning",
+      "channels": ["email", "log"],
+      "conditions": {
+        "always_send": true,
+        "min_warning_count": 1
+      }
+    },
+    "performance_regression": {
+      "title_template": "📉 Performance Regression Detected",
+      "message_template": "Performance regression detected in dependency validation!\n\nRegression Details:\n- Validation Type: {validation_type}\n- Baseline Throughput: {baseline_throughput} keys/sec\n- Current Throughput: {current_throughput} keys/sec\n- Regression: {regression_percentage}%\n- Threshold: {regression_threshold}%\n\nRecommendation: {recommendation}\n\nTimestamp: {timestamp}",
+      "notification_type": "warning",
+      "channels": ["email", "log", "webhook"],
+      "conditions": {
+        "always_send": true,
+        "min_regression_percentage": 5.0
+      }
+    },
+    "rollback_triggered": {
+      "title_template": "🔄 Auto-Rollback Triggered",
+      "message_template": "Automatic rollback triggered due to validation failure!\n\nRollback Details:\n- Validation Type: {validation_type}\n- Failure Reason: {failure_reason}\n- Rollback Timestamp: {rollback_timestamp}\n- Rollback Point: {rollback_point}\n\nStatus: {rollback_status}\n\nTimestamp: {timestamp}",
+      "notification_type": "failure",
+      "channels": ["email", "log", "webhook", "pagerduty"],
+      "conditions": {
+        "always_send": true
+      }
+    },
+    "update_with_validation_started": {
+      "title_template": "🔄 Dependency Update with Validation Started",
+      "message_template": "Starting dependency update with validation framework!\n\nUpdate Details:\n- Validation Level: {validation_level}\n- Dry Run: {dry_run}\n- Estimated Duration: {estimated_duration}\n- Components: {component_list}\n\nProgress will be reported throughout the process.\n\nTimestamp: {timestamp}",
+      "notification_type": "info",
+      "channels": ["log"],
+      "conditions": {
+        "always_send": true,
+        "min_validation_level": "standard"
+      }
+    },
+    "pre_update_validation_complete": {
+      "title_template": "✅ Pre-Update Validation Complete",
+      "message_template": "Pre-update validation phase completed successfully!\n\nValidation Results:\n- Validation Level: {validation_level}\n- Tests Passed: {passed_tests}/{total_tests}\n- Duration: {duration}\n- Issues Found: {issues_count}\n\nProceeding with dependency updates...\n\nTimestamp: {timestamp}",
+      "notification_type": "success",
+      "channels": ["log"],
+      "conditions": {
+        "always_send": true
+      }
+    },
+    "post_update_validation_complete": {
+      "title_template": "✅ Post-Update Validation Complete",
+      "message_template": "Post-update validation phase completed!\n\nValidation Results:\n- Validation Level: {validation_level}\n- Tests Passed: {passed_tests}/{total_tests}\n- Duration: {duration}\n- Issues Found: {issues_count}\n\nDependency update with validation completed successfully!\n\nTimestamp: {timestamp}",
+      "notification_type": "success",
+      "channels": ["email", "log"],
+      "conditions": {
+        "always_send": true
+      }
+    },
+    "comprehensive_test_results": {
+      "title_template": "📊 Comprehensive Test Results",
+      "message_template": "Comprehensive validation test suite completed!\n\nTest Suite Summary:\n- Total Tests: {total_tests}\n- Passed: {passed_tests}\n- Failed: {failed_tests}\n- Skipped: {skipped_tests}\n- Success Rate: {success_rate}%\n\nCategories Tested:\n{category_results}\n\nEnvironment Details:\n- OS: {os_info}\n- Architecture: {architecture}\n- CUDA Available: {cuda_available}\n- CMake Available: {cmake_available}\n\nDetailed reports available in: {report_location}\n\nTimestamp: {timestamp}",
+      "notification_type": "info",
+      "channels": ["email", "log"],
+      "conditions": {
+        "always_send": true,
+        "min_test_count": 10
+      }
+    },
+    "health_check_results": {
+      "title_template": "🏥 Dependency Health Check Results",
+      "message_template": "Dependency health check completed!\n\nHealth Status: {health_status}\n\nCritical Components:\n- CUDA: {cuda_status}\n- CMake: {cmake_status}\n- GPU Devices: {gpu_status}\n- Build System: {build_status}\n\nIssues Found: {issues_count}\nRecommendations: {recommendation_count}\n\nHealth Score: {health_score}/100\n\nTimestamp: {timestamp}",
+      "notification_type": "info",
+      "channels": ["log"],
+      "conditions": {
+        "always_send": true,
+        "health_score_threshold": 80
+      }
+    },
+    "benchmark_complete": {
+      "title_template": "📈 Performance Benchmark Complete",
+      "message_template": "Performance benchmark completed!\n\nBenchmark Details:\n- Type: {benchmark_type}\n- Duration: {duration}\n- Iterations: {iterations}\n- Average Throughput: {avg_throughput} keys/sec\n- Max Throughput: {max_throughput} keys/sec\n- Min Throughput: {min_throughput} keys/sec\n\nPerformance Comparison:\n- Baseline: {baseline_comparison}\n- Regression: {regression_status}\n\nTimestamp: {timestamp}",
+      "notification_type": "info",
+      "channels": ["log"],
+      "conditions": {
+        "always_send": true
+      }
+    },
+    "configuration_error": {
+      "title_template": "⚠️ Validation Configuration Error",
+      "message_template": "Validation configuration error detected!\n\nError Details:\n- Configuration File: {config_file}\n- Error Type: {error_type}\n- Error Message: {error_message}\n- Affected Component: {affected_component}\n\nResolution: {resolution_suggestion}\n\nTimestamp: {timestamp}",
+      "notification_type": "warning",
+      "channels": ["email", "log"],
+      "conditions": {
+        "always_send": true
+      }
+    }
+  },
+  "channel_configurations": {
+    "email": {
+      "enabled": true,
+      "recipients": ["devops@example.com", "developers@example.com"],
+      "subject_prefix": "[Puzzle71Solver Validation]",
+      "html_format": true,
+      "attachments": ["report.json", "detailed_log.txt"]
+    },
+    "log": {
+      "enabled": true,
+      "log_level": "INFO",
+      "log_file": "validation_notifications.log",
+      "structured_logging": true,
+      "retention_days": 30
+    },
+    "webhook": {
+      "enabled": false,
+      "url": "https://hooks.example.com/validation",
+      "timeout_seconds": 30,
+      "retry_count": 3,
+      "authentication": {
+        "type": "bearer_token",
+        "token": "WEBHOOK_TOKEN"
+      }
+    },
+    "pagerduty": {
+      "enabled": false,
+      "service_key": "PAGERDUTY_SERVICE_KEY",
+      "severity_mapping": {
+        "critical": "critical",
+        "warning": "warning",
+        "info": "info"
+      }
+    }
+  },
+  "template_variables": {
+    "common": [
+      "timestamp",
+      "validation_type",
+      "validation_level",
+      "duration",
+      "success_rate"
+    ],
+    "test_results": [
+      "passed_tests",
+      "failed_tests",
+      "skipped_tests",
+      "total_tests"
+    ],
+    "performance": [
+      "baseline_throughput",
+      "current_throughput",
+      "regression_percentage",
+      "regression_threshold"
+    ],
+    "system": [
+      "os_info",
+      "architecture",
+      "cuda_available",
+      "cmake_available"
+    ],
+    "notification": [
+      "notification_type",
+      "channels",
+      "priority"
+    ]
+  },
+  "scheduling": {
+    "digest_notifications": true,
+    "digest_interval_minutes": 60,
+    "quiet_hours": {
+      "enabled": true,
+      "start_time": "22:00",
+      "end_time": "06:00",
+      "timezone": "UTC"
+    },
+    "rate_limiting": {
+      "max_notifications_per_hour": 50,
+      "max_notifications_per_day": 200
+    }
+  }
+}

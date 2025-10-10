@@ -2,7 +2,7 @@
 
 #include "config/puzzle71_config.h"
 #include "checkpoint_manifest.h"
-#include "scan/puzzle71_partition.h"
+#include "traversal/puzzle71_partition.h"
 #include "scheduler/range_scheduler.h"
 #include "utils/digest_verifier.h"
 #include "utils/checkpoint_crypto.h"

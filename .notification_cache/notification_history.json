@@ -1,0 +1,182 @@
+{
+  "notification_version": "1.0",
+  "created_timestamp": "2025-10-10T08:38:00Z",
+  "last_updated": "2025-10-10T08:38:00Z",
+  "total_notifications": 20,
+  "successful_notifications": 10,
+  "failed_notifications": 10,
+  "notifications_by_type": {
+    "email": 5,
+    "slack": 5,
+    "console": 5,
+    "file": 5
+  },
+  "notifications_by_priority": {
+    "low": 0,
+    "medium": 16,
+    "high": 4,
+    "critical": 0
+  },
+  "recent_notifications": [
+    {
+      "timestamp": "2025-10-10T05:59:45Z",
+      "channel": "console",
+      "priority": "medium",
+      "subject": "Dependency Update Notification",
+      "status": "success",
+      "error_message": ""
+    },
+    {
+      "timestamp": "2025-10-10T05:59:45Z",
+      "channel": "file",
+      "priority": "medium",
+      "subject": "Dependency Update Notification",
+      "status": "success",
+      "error_message": ""
+    },
+    {
+      "timestamp": "2025-10-10T05:59:45Z",
+      "channel": "email",
+      "priority": "medium",
+      "subject": "Dependency Update Notification",
+      "status": "skipped",
+      "error_message": "Email notifications disabled"
+    },
+    {
+      "timestamp": "2025-10-10T05:59:46Z",
+      "channel": "slack",
+      "priority": "medium",
+      "subject": "Dependency Update Notification",
+      "status": "skipped",
+      "error_message": "Slack notifications disabled"
+    },
+    {
+      "timestamp": "2025-10-10T06:00:24Z",
+      "channel": "console",
+      "priority": "medium",
+      "subject": "Dependency Update Started",
+      "status": "success",
+      "error_message": ""
+    },
+    {
+      "timestamp": "2025-10-10T06:00:24Z",
+      "channel": "file",
+      "priority": "medium",
+      "subject": "Dependency Update Started",
+      "status": "success",
+      "error_message": ""
+    },
+    {
+      "timestamp": "2025-10-10T06:00:24Z",
+      "channel": "email",
+      "priority": "medium",
+      "subject": "Dependency Update Started",
+      "status": "skipped",
+      "error_message": "Email notifications disabled"
+    },
+    {
+      "timestamp": "2025-10-10T06:00:24Z",
+      "channel": "slack",
+      "priority": "medium",
+      "subject": "Dependency Update Started",
+      "status": "skipped",
+      "error_message": "Slack notifications disabled"
+    },
+    {
+      "timestamp": "2025-10-10T06:00:25Z",
+      "channel": "console",
+      "priority": "high",
+      "subject": "Dependency Update Failed",
+      "status": "success",
+      "error_message": ""
+    },
+    {
+      "timestamp": "2025-10-10T06:00:25Z",
+      "channel": "file",
+      "priority": "high",
+      "subject": "Dependency Update Failed",
+      "status": "success",
+      "error_message": ""
+    },
+    {
+      "timestamp": "2025-10-10T06:00:25Z",
+      "channel": "email",
+      "priority": "high",
+      "subject": "Dependency Update Failed",
+      "status": "skipped",
+      "error_message": "Email notifications disabled"
+    },
+    {
+      "timestamp": "2025-10-10T06:00:25Z",
+      "channel": "slack",
+      "priority": "high",
+      "subject": "Dependency Update Failed",
+      "status": "skipped",
+      "error_message": "Slack notifications disabled"
+    },
+    {
+      "timestamp": "2025-10-10T06:00:44Z",
+      "channel": "console",
+      "priority": "medium",
+      "subject": "Dependency Update Notification",
+      "status": "success",
+      "error_message": ""
+    },
+    {
+      "timestamp": "2025-10-10T06:00:44Z",
+      "channel": "file",
+      "priority": "medium",
+      "subject": "Dependency Update Notification",
+      "status": "success",
+      "error_message": ""
+    },
+    {
+      "timestamp": "2025-10-10T06:00:44Z",
+      "channel": "email",
+      "priority": "medium",
+      "subject": "Dependency Update Notification",
+      "status": "skipped",
+      "error_message": "Email notifications disabled"
+    },
+    {
+      "timestamp": "2025-10-10T06:00:44Z",
+      "channel": "slack",
+      "priority": "medium",
+      "subject": "Dependency Update Notification",
+      "status": "skipped",
+      "error_message": "Slack notifications disabled"
+    },
+    {
+      "timestamp": "2025-10-10T06:00:49Z",
+      "channel": "console",
+      "priority": "medium",
+      "subject": "Dependency Update Notification",
+      "status": "success",
+      "error_message": ""
+    },
+    {
+      "timestamp": "2025-10-10T06:00:49Z",
+      "channel": "file",
+      "priority": "medium",
+      "subject": "Dependency Update Notification",
+      "status": "success",
+      "error_message": ""
+    },
+    {
+      "timestamp": "2025-10-10T06:00:49Z",
+      "channel": "email",
+      "priority": "medium",
+      "subject": "Dependency Update Notification",
+      "status": "skipped",
+      "error_message": "Email notifications disabled"
+    },
+    {
+      "timestamp": "2025-10-10T06:00:49Z",
+      "channel": "slack",
+      "priority": "medium",
+      "subject": "Dependency Update Notification",
+      "status": "skipped",
+      "error_message": "Slack notifications disabled"
+    }
+  ]
+}

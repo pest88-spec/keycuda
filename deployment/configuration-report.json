@@ -1,0 +1,124 @@
+{
+  "session_start": "2025-10-10 03:09:45 UTC",
+  "build_directory": "/root/keycuda",
+  "project_root": "/root/keycuda",
+  "log_level": "INFO",
+  "configurations": [
+    {
+      "type": "INIT",
+      "description": "Deployment configuration logging initialized",
+      "timestamp": "2025-10-10 03:09:45 UTC",
+      "timestamp_ms": 1760065785392,
+      "context": {
+        "script": "log-deployment-config.sh",
+        "log_file": "/tmp/test-deployment-config.log",
+        "build_dir": "/root/keycuda"
+      }
+    },
+    {
+      "type": "FEATURE_FLAG",
+      "description": "Feature flag configuration",
+      "timestamp": "2025-10-10 03:09:45 UTC",
+      "timestamp_ms": 1760065785429,
+      "context": {
+        "feature_name": "ENABLE_DEPLOYMENT_SYSTEM",
+        "enabled": "true",
+        "raw_value": "ON",
+        "source": "cmake_cache"
+      }
+    },
+    {
+      "type": "FEATURE_FLAG",
+      "description": "Feature flag configuration",
+      "timestamp": "2025-10-10 03:09:45 UTC",
+      "timestamp_ms": 1760065785465,
+      "context": {
+        "feature_name": "DEPLOYMENT_SELF_CONTAINED",
+        "enabled": "true",
+        "raw_value": "ON",
+        "source": "cmake_cache"
+      }
+    },
+    {
+      "type": "FEATURE_FLAG",
+      "description": "Feature flag configuration",
+      "timestamp": "2025-10-10 03:09:45 UTC",
+      "timestamp_ms": 1760065785501,
+      "context": {
+        "feature_name": "DEPLOYMENT_INCLUDE_DOCS",
+        "enabled": "true",
+        "raw_value": "ON",
+        "source": "cmake_cache"
+      }
+    },
+    {
+      "type": "FEATURE_FLAG",
+      "description": "Feature flag configuration",
+      "timestamp": "2025-10-10 03:09:45 UTC",
+      "timestamp_ms": 1760065785537,
+      "context": {
+        "feature_name": "DEPLOYMENT_COMPRESS_PACKAGE",
+        "enabled": "true",
+        "raw_value": "ON",
+        "source": "cmake_cache"
+      }
+    },
+    {
+      "type": "FEATURE_FLAG",
+      "description": "Feature flag configuration",
+      "timestamp": "2025-10-10 03:09:45 UTC",
+      "timestamp_ms": 1760065785573,
+      "context": {
+        "feature_name": "ENABLE_INTEGRATION_SYSTEM",
+        "enabled": "true",
+        "raw_value": "ON",
+        "source": "cmake_cache"
+      }
+    },
+    {
+      "type": "FEATURE_FLAG",
+      "description": "Feature flag configuration",
+      "timestamp": "2025-10-10 03:09:45 UTC",
+      "timestamp_ms": 1760065785611,
+      "context": {
+        "feature_name": "OFFLINE_BUILD",
+        "enabled": "false",
+        "raw_value": "OFF",
+        "source": "cmake_cache"
+      }
+    },
+    {
+      "type": "FEATURE_FLAG",
+      "description": "Feature flag configuration",
+      "timestamp": "2025-10-10 03:09:45 UTC",
+      "timestamp_ms": 1760065785652,
+      "context": {
+        "feature_name": "STRICT_ATTRIBUTION",
+        "enabled": "true",
+        "raw_value": "ON",
+        "source": "cmake_cache"
+      }
+    },
+    {
+      "type": "FEATURE_FLAG",
+      "description": "Feature flag configuration",
+      "timestamp": "2025-10-10 03:09:45 UTC",
+      "timestamp_ms": 1760065785689,
+      "context": {
+        "feature_name": "SECP256K1_AVAILABLE",
+        "enabled": "true",
+        "raw_value": "ON",
+        "source": "cmake_cache"
+      }
+    },
+    {
+      "type": "FEATURE_FLAGS_SUMMARY",
+      "description": "Feature flag logging completed",
+      "timestamp": "2025-10-10 03:09:45 UTC",
+      "timestamp_ms": 1760065785728,
+      "context": {
+        "total_features": "8"
+      }
+    }
+  ]
+}

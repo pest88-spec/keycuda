@@ -1,5 +1,5 @@
-#include "KeyhuntCore/gpu/device_buffers.h"
-#include "KeyhuntCore/gpu/batch_planner.h"
+#include "ComputeCore/gpu/device_buffers.h"
+#include "ComputeCore/gpu/batch_planner.h"
 
 #include <algorithm>
 #include <stdexcept>

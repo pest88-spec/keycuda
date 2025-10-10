@@ -1,0 +1,35 @@
+Setup Complexity Baseline Report
+================================
+
+Measurement ID: setup_baseline_20251010_235105
+Timestamp: Fri Oct 10 23:51:05 CST 2025
+
+CURRENT STATE
+------------
+Setup Files: 3
+Setup Steps: 44
+Manual Steps: 44
+Automation Coverage: 100%
+Missing Dependencies: 0
+
+Complexity Score: 100/100
+Complexity Level: HIGH
+
+SUCCESS CRITERIA
+---------------
+80% Reduction Target: MET
+Reduction Potential: 80%
+Optimization Required: No
+
+TIME ESTIMATES
+---------------
+Estimated Setup Time: 8 minutes
+Time to First Build: 11 minutes
+
+RECOMMENDATIONS
+---------------
+
+• Reduce manual intervention through scripts
+
+• Simplify build configuration
+

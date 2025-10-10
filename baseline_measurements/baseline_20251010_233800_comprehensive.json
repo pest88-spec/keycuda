@@ -1,0 +1,45 @@
+{
+    "measurement_id": "baseline_20251010_233800",
+    "measurement_timestamp": "2025-10-10T23:38:00+08:00",
+    "project_root": "/root/keycuda",
+    "measurement_type": "comprehensive_build_baseline",
+    "target_build_time_minutes": 5,
+    "system_info": {
+        "os": "Linux",
+        "kernel": "5.15.0-124-generic",
+        "architecture": "x86_64",
+        "cpu_cores": "12",
+        "memory_gb": "1007",
+        "disk_space_gb": "29",
+        "load_average": "6.33, 7.04, 6.81"
+    },
+    "environment_info": {
+        "cuda_version": "V12.1.105",
+        "gcc_version": "gcc (Ubuntu 11.4.0-1ubuntu1~22.04) 11.4.0",
+        "cmake_version": "cmake version 3.22.1",
+        "git_version": "git version 2.34.1",
+        "make_version": "GNU Make 4.3
+N/A",
+        "python_version": "Python 3.12.3",
+        "bash_version": "GNU bash, version 5.1.16(1)-release (x86_64-pc-linux-gnu)"
+    },
+    "build_phases": {},
+    "dependency_analysis": {},
+    "source_code_analysis": {},
+    "configuration_analysis": {},
+    "build_attempt_results": {},
+    "baseline_establishment": {
+        "estimated_build_time_seconds": 0,
+        "confidence_level": "low",
+        "measurement_method": "system_analysis",
+        "requires_optimization": true,
+        "identified_issues": []
+    },
+    "success_criteria_validation": {
+        "meets_5_minute_target": false,
+        "target_seconds": 300,
+        "estimated_seconds": 0,
+        "performance_score": 0.0,
+        "optimization_required": true
+    }
+}

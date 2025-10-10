@@ -1,0 +1,35 @@
+{
+    "measurement_id": "baseline_20251010_233517",
+    "measurement_timestamp": "2025-10-10T23:35:17+08:00",
+    "project_root": "/root/keycuda",
+    "target_build_time_minutes": 5,
+    "measurement_type": "fresh_checkout_build_baseline",
+    "system_info": {
+        "os": "Linux",
+        "kernel": "5.15.0-124-generic",
+        "architecture": "x86_64",
+        "cpu_cores": "12",
+        "memory_gb": "1007",
+        "disk_space_gb": "29"
+    },
+    "environment_info": {
+        "cuda_version": "V12.1.105",
+        "gcc_version": "gcc (Ubuntu 11.4.0-1ubuntu1~22.04) 11.4.0",
+        "cmake_version": "cmake version 3.22.1",
+        "git_version": "git version 2.34.1",
+        "make_version": "GNU Make 4.3
+N/A"
+    },
+    "phases": {},
+    "build_configuration": "Release",
+    "build_successful": false,
+    "total_build_time_seconds": 0,
+    "error_message": "",
+    "artifacts": [],
+    "success_criteria_validation": {
+        "meets_5_minute_target": false,
+        "target_seconds": 300,
+        "actual_seconds": 0,
+        "performance_score": 0.0
+    }
+}

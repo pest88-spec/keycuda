@@ -1,0 +1,207 @@
+{
+  "validation_environments_version": "1.0",
+  "created_timestamp": "",
+  "description": "Environment-specific validation configurations",
+  "environments": {
+    "linux_x86_64": {
+      "description": "Linux x86_64 environment configuration",
+      "platform": "linux",
+      "architecture": "x86_64",
+      "supported_features": ["gpu_acceleration", "multi_threading", "memory_mapping"],
+      "requirements": {
+        "min_cuda_version": "11.0",
+        "min_memory_gb": 8,
+        "min_storage_gb": 10,
+        "required_tools": ["cmake", "make", "git", "nvcc", "nvidia-smi"]
+      },
+      "validation_adjustments": {
+        "performance_multiplier": 1.0,
+        "timeout_multiplier": 1.0,
+        "additional_checks": ["gpu_validation", "driver_compatibility"]
+      },
+      "known_issues": [],
+      "workarounds": {}
+    },
+    "linux_aarch64": {
+      "description": "Linux ARM64 environment configuration",
+      "platform": "linux",
+      "architecture": "aarch64",
+      "supported_features": ["multi_threading", "memory_mapping"],
+      "requirements": {
+        "min_memory_gb": 8,
+        "min_storage_gb": 10,
+        "required_tools": ["cmake", "make", "git"]
+      },
+      "validation_adjustments": {
+        "performance_multiplier": 0.7,
+        "timeout_multiplier": 1.5,
+        "additional_checks": ["cpu_validation"],
+        "skip_tests": ["gpu_tests"]
+      },
+      "known_issues": [
+        "GPU acceleration not available on ARM64",
+        "Performance may be lower than x86_64"
+      ],
+      "workarounds": {
+        "gpu_unavailable": "Use CPU-only validation profile"
+      }
+    },
+    "windows_x86_64": {
+      "description": "Windows x86_64 environment configuration",
+      "platform": "windows",
+      "architecture": "x86_64",
+      "supported_features": ["gpu_acceleration", "multi_threading"],
+      "requirements": {
+        "min_cuda_version": "11.0",
+        "min_memory_gb": 16,
+        "min_storage_gb": 20,
+        "required_tools": ["cmake", "git", "nvcc"]
+      },
+      "validation_adjustments": {
+        "performance_multiplier": 0.9,
+        "timeout_multiplier": 1.2,
+        "additional_checks": ["path_validation", "permissions_check"],
+        "shell_compatibility": "cmd"
+      },
+      "known_issues": [
+        "Path separators differ from Linux",
+        "File permissions work differently"
+      ],
+      "workarounds": {
+        "path_separator": "Use appropriate path handling for Windows",
+        "permissions": "Adjust permission checks for Windows ACLs"
+      }
+    },
+    "darwin_x86_64": {
+      "description": "macOS Intel environment configuration",
+      "platform": "darwin",
+      "architecture": "x86_64",
+      "supported_features": ["multi_threading", "memory_mapping"],
+      "requirements": {
+        "min_memory_gb": 16,
+        "min_storage_gb": 20,
+        "required_tools": ["cmake", "make", "git"]
+      },
+      "validation_adjustments": {
+        "performance_multiplier": 0.8,
+        "timeout_multiplier": 1.3,
+        "additional_checks": ["memory_pressure", "system_integrity"],
+        "skip_tests": ["gpu_tests"]
+      },
+      "known_issues": [
+        "CUDA not supported on macOS",
+        "Different memory management"
+      ],
+      "workarounds": {
+        "cuda_unavailable": "Use OpenCL or CPU fallback",
+        "memory_management": "Adjust for macOS memory pressure"
+      }
+    },
+    "darwin_arm64": {
+      "description": "macOS Apple Silicon environment configuration",
+      "platform": "darwin",
+      "architecture": "arm64",
+      "supported_features": ["multi_threading", "memory_mapping"],
+      "requirements": {
+        "min_memory_gb": 16,
+        "min_storage_gb": 20,
+        "required_tools": ["cmake", "make", "git"]
+      },
+      "validation_adjustments": {
+        "performance_multiplier": 0.75,
+        "timeout_multiplier": 1.4,
+        "additional_checks": ["memory_pressure", "rosetta_compatibility"],
+        "skip_tests": ["gpu_tests"]
+      },
+      "known_issues": [
+        "CUDA not supported on Apple Silicon",
+        "Rosetta translation may affect performance"
+      ],
+      "workarounds": {
+        "cuda_unavailable": "Use OpenCL or CPU fallback",
+        "rosetta": "Check for Rosetta compatibility when using x86_64 binaries"
+      }
+    },
+    "docker_linux": {
+      "description": "Docker container on Linux environment configuration",
+      "platform": "linux",
+      "architecture": "x86_64",
+      "supported_features": ["gpu_acceleration", "multi_threading"],
+      "requirements": {
+        "min_cuda_version": "11.0",
+        "min_memory_gb": 4,
+        "min_storage_gb": 5,
+        "required_tools": ["cmake", "make", "git"],
+        "docker_requirements": {
+          "nvidia_docker": true,
+          "privileged_mode": false,
+          "volume_mounts": ["/tmp:/tmp", "/var/run/docker.sock:/var/run/docker.sock"]
+        }
+      },
+      "validation_adjustments": {
+        "performance_multiplier": 0.95,
+        "timeout_multiplier": 1.1,
+        "additional_checks": ["docker_resources", "container_permissions"],
+        "resource_limits": {
+          "memory_limit": "auto_detect",
+          "cpu_limit": "auto_detect"
+        }
+      },
+      "known_issues": [
+        "Docker resource limits may affect performance",
+        "GPU access requires nvidia-docker"
+      ],
+      "workarounds": {
+        "resource_limits": "Adjust Docker resource limits if needed",
+        "gpu_access": "Ensure nvidia-docker is properly configured"
+      }
+    },
+    "ci_cd": {
+      "description": "CI/CD pipeline environment configuration",
+      "platform": "linux",
+      "architecture": "x86_64",
+      "supported_features": ["multi_threading"],
+      "requirements": {
+        "min_memory_gb": 2,
+        "min_storage_gb": 5,
+        "required_tools": ["cmake", "make", "git"]
+      },
+      "validation_adjustments": {
+        "performance_multiplier": 0.5,
+        "timeout_multiplier": 2.0,
+        "additional_checks": ["ci_environment", "artifact_generation"],
+        "skip_tests": ["gpu_tests", "stress_tests", "integration_tests"],
+        "ci_specific": {
+          "junit_reports": true,
+          "artifact_collection": true,
+          "parallel_execution": true
+        }
+      },
+      "known_issues": [
+        "Limited resources in CI environment",
+        "GPU not available in most CI runners"
+      ],
+      "workarounds": {
+        "resource_constraints": "Use minimal validation profile",
+        "gpu_unavailable": "Skip GPU-dependent tests"
+      }
+    }
+  },
+  "environment_detection": {
+    "methods": [
+      "platform_detection",
+      "architecture_detection",
+      "tool_availability_check",
+      "resource_assessment"
+    ],
+    "fallback_environment": "linux_x86_64",
+    "customization_allowed": true,
+    "auto_apply_adjustments": true
+  },
+  "validation_rules": {
+    "required_fields": ["platform", "architecture", "requirements", "validation_adjustments"],
+    "platform_validation": true,
+    "architecture_validation": true,
+    "requirements_validation": true
+  }
+}

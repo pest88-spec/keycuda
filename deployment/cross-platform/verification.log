@@ -1,0 +1,13 @@
+Cross-platform verification log - Fri Oct 10 11:36:10 CST 2025
+[2025-10-10 03:36:10 UTC] [CROSS-PLATFORM INFO] Testing 1 platforms: linux-x86_64
+[2025-10-10 03:36:10 UTC] [CROSS-PLATFORM INFO] DRY-RUN mode: No actual verification will be performed
+[2025-10-10 03:36:10 UTC] [CROSS-PLATFORM INFO] Starting parallel verification for 0 platforms
+[2025-10-10 03:36:10 UTC] [CROSS-PLATFORM INFO] Verification complete: overall_score=0, platforms_passed=0/0
+[2025-10-10 03:36:10 UTC] [CROSS-PLATFORM INFO] Generating compatibility report
+[2025-10-10 03:36:11 UTC] [CROSS-PLATFORM SUCCESS] Compatibility report generated: /root/keycuda/deployment/cross-platform/compatibility_report_20251010_113611.md
+[2025-10-10 03:36:11 UTC] [CROSS-PLATFORM INFO] === Cross-Platform Verification Complete ===
+[2025-10-10 03:36:11 UTC] [CROSS-PLATFORM INFO] Overall Score: /100
+[2025-10-10 03:36:11 UTC] [CROSS-PLATFORM INFO] Overall Status: 
+[2025-10-10 03:36:11 UTC] [CROSS-PLATFORM INFO] Platforms Tested: 
+[2025-10-10 03:36:11 UTC] [CROSS-PLATFORM INFO] Platforms Passed: 
+[2025-10-10 03:36:11 UTC] [CROSS-PLATFORM ERROR] Cross-platform verification FAILED: Score below threshold

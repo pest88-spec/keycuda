@@ -1,0 +1,178 @@
+{
+  "validation_profiles_version": "1.0",
+  "created_timestamp": "",
+  "description": "Validation profiles for different deployment scenarios and use cases",
+  "profiles": {
+    "development": {
+      "description": "Validation profile for development environments",
+      "validation_level": "standard",
+      "skip_tests": ["stress_tests", "security_scan"],
+      "timeout_multiplier": 1.5,
+      "parallel_jobs": 2,
+      "notifications": {
+        "on_success": false,
+        "on_failure": true,
+        "on_warning": true
+      },
+      "rollback_settings": {
+        "auto_rollback_on_failure": true,
+        "validate_rollback": false
+      },
+      "performance_settings": {
+        "benchmark_iterations": 1,
+        "regression_threshold": 10.0
+      }
+    },
+    "staging": {
+      "description": "Validation profile for staging/pre-production environments",
+      "validation_level": "comprehensive",
+      "skip_tests": [],
+      "timeout_multiplier": 2.0,
+      "parallel_jobs": 4,
+      "notifications": {
+        "on_success": true,
+        "on_failure": true,
+        "on_warning": true
+      },
+      "rollback_settings": {
+        "auto_rollback_on_failure": true,
+        "validate_rollback": true
+      },
+      "performance_settings": {
+        "benchmark_iterations": 3,
+        "regression_threshold": 5.0
+      }
+    },
+    "production": {
+      "description": "Validation profile for production deployments",
+      "validation_level": "comprehensive",
+      "skip_tests": [],
+      "timeout_multiplier": 3.0,
+      "parallel_jobs": 6,
+      "notifications": {
+        "on_success": true,
+        "on_failure": true,
+        "on_warning": true
+      },
+      "rollback_settings": {
+        "auto_rollback_on_failure": true,
+        "validate_rollback": true
+      },
+      "performance_settings": {
+        "benchmark_iterations": 5,
+        "regression_threshold": 2.0
+      }
+    },
+    "quick_test": {
+      "description": "Quick validation for testing and CI/CD",
+      "validation_level": "quick",
+      "skip_tests": ["stress_tests", "security_scan", "integration_tests"],
+      "timeout_multiplier": 0.5,
+      "parallel_jobs": 1,
+      "notifications": {
+        "on_success": false,
+        "on_failure": true,
+        "on_warning": false
+      },
+      "rollback_settings": {
+        "auto_rollback_on_failure": false,
+        "validate_rollback": false
+      },
+      "performance_settings": {
+        "benchmark_iterations": 1,
+        "regression_threshold": 15.0
+      }
+    },
+    "security_focused": {
+      "description": "Security-focused validation profile",
+      "validation_level": "comprehensive",
+      "skip_tests": ["stress_tests"],
+      "timeout_multiplier": 1.5,
+      "parallel_jobs": 2,
+      "notifications": {
+        "on_success": true,
+        "on_failure": true,
+        "on_warning": true
+      },
+      "rollback_settings": {
+        "auto_rollback_on_failure": true,
+        "validate_rollback": true
+      },
+      "performance_settings": {
+        "benchmark_iterations": 1,
+        "regression_threshold": 10.0
+      },
+      "additional_checks": {
+        "security_scan": {
+          "enabled": true,
+          "critical": true
+        },
+        "dependency_audit": {
+          "enabled": true,
+          "critical": true
+        }
+      }
+    },
+    "performance_focused": {
+      "description": "Performance-focused validation profile",
+      "validation_level": "comprehensive",
+      "skip_tests": ["security_scan"],
+      "timeout_multiplier": 2.0,
+      "parallel_jobs": 4,
+      "notifications": {
+        "on_success": true,
+        "on_failure": true,
+        "on_warning": true
+      },
+      "rollback_settings": {
+        "auto_rollback_on_failure": true,
+        "validate_rollback": true
+      },
+      "performance_settings": {
+        "benchmark_iterations": 10,
+        "regression_threshold": 1.0
+      },
+      "additional_checks": {
+        "scalability_test": {
+          "enabled": true,
+          "critical": false
+        },
+        "memory_benchmark": {
+          "enabled": true,
+          "critical": false
+        }
+      }
+    },
+    "minimal": {
+      "description": "Minimal validation for resource-constrained environments",
+      "validation_level": "quick",
+      "skip_tests": ["stress_tests", "security_scan", "integration_tests", "performance_regression"],
+      "timeout_multiplier": 0.3,
+      "parallel_jobs": 1,
+      "notifications": {
+        "on_success": false,
+        "on_failure": true,
+        "on_warning": false
+      },
+      "rollback_settings": {
+        "auto_rollback_on_failure": false,
+        "validate_rollback": false
+      },
+      "performance_settings": {
+        "benchmark_iterations": 1,
+        "regression_threshold": 20.0
+      }
+    }
+  },
+  "profile_settings": {
+    "default_profile": "development",
+    "profile_inheritance": true,
+    "allow_customization": true,
+    "validation_rules": {
+      "required_fields": ["validation_level", "notifications", "rollback_settings"],
+      "allowed_validation_levels": ["quick", "standard", "comprehensive"],
+      "max_timeout_multiplier": 5.0,
+      "max_parallel_jobs": 12
+    }
+  }
+}
