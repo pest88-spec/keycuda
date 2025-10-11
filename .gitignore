@@ -22,13 +22,27 @@ specs/
 
 # Build artifacts
 build/
+_deps/
+CMakeFiles/
+CMakeCache.txt
+cmake_install.cmake
+compile_commands.json
+CTestTestfile.cmake
+Makefile
+configure
 *.o
 *.so
 *.dylib
+*.a
+*.lib
 
 # Executables
 Puzzle71Solver
 puzzle71_tests
+test_*
+!test_*.cpp
+!test_*.cu
+!test_*.h
 *.exe
 *.out
 
@@ -37,10 +51,115 @@ puzzle71_tests
 .idea/
 *.swp
 *.swo
+*.swn
+*~
+*.bak
+*.backup
+*.tmp
+*.temp
+*.orig
 
 # OS files
 .DS_Store
 Thumbs.db
+desktop.ini
+
+# Cache and temporary directories
+.*cache*/
+.benchmark_config/
+.dependency_cache/
+.dependency_validation/
+.notification_cache/
+.update_schedule/
+.ipynb_checkpoints/
+__pycache__/
+*.pyc
+*.pyo
+.pytest_cache/
+.coverage
+
+# Log files
+*.log
+*.out.txt
+*.err.txt
+logs/
+log/
+
+# Test artifacts
+test_independent/
+test_quick/
+testing/
+test_results/
+
+# Backup directories
+*_backup/
+backup/
+scripts_backup/
+
+# Python virtual environments
+venv/
+env/
+ENV/
+.venv/
+*.egg-info/
+
+# Node.js (if ever used)
+node_modules/
+npm-debug.log
+yarn-error.log
+
+# Documentation artifacts
+*.pdf
+*.docx
+docs/_build/
+.doctrees/
+
+# Archive files
+*.zip
+*.tar
+*.tar.gz
+*.tar.xz
+*.7z
+*.rar
 
 # Exclude singwarp directory (unrelated Python project with sensitive credentials)
 singwarp/
+
+# Google Test dependencies
+googletest*/
+gtest*/
+gmock*/
+
+# JSON compilation databases
+compile_commands.json
+.clangd/
+.cache/
+
+# Performance and benchmark data
+benchmark_results/
+perf.data
+perf.data.old
+*.prof
+*.gcov
+*.gcda
+*.gcno
+
+# CUDA specific
+*.cubin
+*.ptx
+*.fatbin
+*.gpu
+*.sass
+
+# Checkpoint and state files
+checkpoint*.dat
+*.checkpoint
+*.state
+state/
+
+# Large files that shouldn't be in repo
+*.pdb
+*.idb
+*.ilk
+*.exp
+*.map
