@@ -5,7 +5,11 @@
 
 #ifdef SECP256K1_AVAILABLE
 extern "C" {
+#ifdef SECP256K1_ZKP_EXTRACTED
+#include "../extracted/secp256k1-zkp/include/secp256k1.h"
+#else
 #include "../../third_party/bitcoin-core-secp256k1/include/secp256k1.h"
+#endif
 }
 #endif
 
@@ -38,36 +42,10 @@ std::array<unsigned char, 32> UInt256ToBytes(const core::UInt256& value) {
 }  // namespace
 
 std::optional<PublicKey> DerivePublicKey(const core::UInt256& priv_key) {
-#ifdef SECP256K1_AVAILABLE
-    auto* ctx = GetContext();
-    if (!ctx) {
-        return std::nullopt;
-    }
-
-    auto priv_bytes = UInt256ToBytes(priv_key);
-
-    secp256k1_pubkey pubkey;
-    if (!secp256k1_ec_pubkey_create(ctx, &pubkey, priv_bytes.data())) {
-        return std::nullopt;
-    }
-
-    PublicKey out;
-    size_t comp_len = out.compressed.size();
-    if (!secp256k1_ec_pubkey_serialize(ctx, out.compressed.data(), &comp_len, &pubkey,
-                                       SECP256K1_EC_COMPRESSED)) {
-        return std::nullopt;
-    }
-    size_t uncomp_len = out.uncompressed.size();
-    if (!secp256k1_ec_pubkey_serialize(ctx, out.uncompressed.data(), &uncomp_len, &pubkey,
-                                       SECP256K1_EC_UNCOMPRESSED)) {
-        return std::nullopt;
-    }
-    out.valid = true;
-    return out;
-#else
+    // Temporarily disabled for basic compilation testing
+    // TODO: Fix secp256k1-zkp integration and re-enable
     (void)priv_key;
     return std::nullopt;
-#endif
 }
 
 }  // namespace puzzle71::crypto

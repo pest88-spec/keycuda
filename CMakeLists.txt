@@ -68,7 +68,6 @@ set(PUZZLE71_CORE_SOURCES
   src/ComputeCore/gpu/gpu_executor.cpp
   src/ComputeCore/gpu/device_buffers.cpp
   src/ComputeCore/adapters/reference/conversions.cpp
-  ${INTEGRATION_SOURCES}
 )
 
 add_executable(Puzzle71Solver ${PUZZLE71_CORE_SOURCES})
@@ -204,29 +203,6 @@ else()
   message(STATUS "Deployment system disabled")
 endif()
 
-# Configure secp256k1 support based on offline mode and availability
-# Check if bitcoin-core submodule is available and initialized
-set(BITCOIN_CORE_SECP256K1_AVAILABLE FALSE)
-if(EXISTS "${CMAKE_SOURCE_DIR}/third_party/bitcoin-core-secp256k1/CMakeLists.txt")
-  set(BITCOIN_CORE_SECP256K1_AVAILABLE TRUE)
-endif()
-
-if(SECP256K1_AVAILABLE AND NOT OFFLINE_BUILD AND BITCOIN_CORE_SECP256K1_AVAILABLE)
-  target_compile_definitions(Puzzle71Solver PRIVATE SECP256K1_AVAILABLE=1)
-  set(SECP256K1_BUILD_TESTS OFF CACHE BOOL "" FORCE)
-  set(SECP256K1_BUILD_BENCHMARK OFF CACHE BOOL "" FORCE)
-  set(SECP256K1_BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
-  add_subdirectory(third_party/bitcoin-core-secp256k1)
-  target_link_libraries(Puzzle71Solver PRIVATE secp256k1)
-  message(STATUS "Using bitcoin-core secp256k1 (external submodule)")
-elseif(AVAILABLE_SECP256K1_ZKP_SOURCES)
-  # Use extracted secp256k1-zkp instead of external dependency
-  target_compile_definitions(Puzzle71Solver PRIVATE SECP256K1_AVAILABLE=1 SECP256K1_ZKP_EXTRACTED=1)
-  message(STATUS "Using extracted secp256k1-zkp (offline/submodule-free mode)")
-else()
-  target_compile_definitions(Puzzle71Solver PRIVATE SECP256K1_AVAILABLE=0)
-  message(STATUS "secp256k1 support disabled (submodule not available)")
-endif()
 
 set_target_properties(Puzzle71Solver PROPERTIES CUDA_ARCHITECTURES "75;86;89;90")
 
@@ -267,8 +243,8 @@ set_source_files_properties(${BITCRACK_SOURCES} PROPERTIES
 # secp256k1-zkp extracted sources (when available)
 set(SECP256K1_ZKP_SOURCES
   src/extracted/secp256k1-zkp/src/secp256k1.c
-  src/extracted/secp256k1-zkp/src/precomputed_ecmult.c
-  src/extracted/secp256k1-zkp/src/precomputed_ecmult_gen.c
+  src/extracted/secp256k1-zkp/src/precompute_ecmult.c
+  src/extracted/secp256k1-zkp/src/precompute_ecmult_gen.c
 )
 
 # Add all header files for dependency tracking
@@ -298,6 +274,30 @@ if(AVAILABLE_SECP256K1_ZKP_SOURCES)
 
   list(LENGTH AVAILABLE_SECP256K1_ZKP_SOURCES secp256k1_zkp_file_count)
   message(STATUS "Added ${secp256k1_zkp_file_count} secp256k1-zkp files (sources + headers)")
+endif()
+
+# Configure secp256k1 support based on offline mode and availability (moved after source processing)
+# Check if bitcoin-core submodule is available and initialized
+set(BITCOIN_CORE_SECP256K1_AVAILABLE FALSE)
+if(EXISTS "${CMAKE_SOURCE_DIR}/third_party/bitcoin-core-secp256k1/CMakeLists.txt")
+  set(BITCOIN_CORE_SECP256K1_AVAILABLE TRUE)
+endif()
+
+if(SECP256K1_AVAILABLE AND NOT OFFLINE_BUILD AND BITCOIN_CORE_SECP256K1_AVAILABLE)
+  target_compile_definitions(Puzzle71Solver PRIVATE SECP256K1_AVAILABLE=1)
+  set(SECP256K1_BUILD_TESTS OFF CACHE BOOL "" FORCE)
+  set(SECP256K1_BUILD_BENCHMARK OFF CACHE BOOL "" FORCE)
+  set(SECP256K1_BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
+  add_subdirectory(third_party/bitcoin-core-secp256k1)
+  target_link_libraries(Puzzle71Solver PRIVATE secp256k1)
+  message(STATUS "Using bitcoin-core secp256k1 (external submodule)")
+elseif(AVAILABLE_SECP256K1_ZKP_SOURCES)
+  # Use extracted secp256k1-zkp instead of external dependency
+  target_compile_definitions(Puzzle71Solver PRIVATE SECP256K1_AVAILABLE=1 SECP256K1_ZKP_EXTRACTED=1)
+  message(STATUS "Using extracted secp256k1-zkp (offline/submodule-free mode)")
+else()
+  target_compile_definitions(Puzzle71Solver PRIVATE SECP256K1_AVAILABLE=0)
+  message(STATUS "secp256k1 support disabled (submodule not available)")
 endif()
 
 # Enable testing / GoogleTest via FetchContent (conditional on offline build)

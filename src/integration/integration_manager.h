@@ -33,7 +33,7 @@ struct LibraryInfo {
     std::vector<std::string> dependencies;
     std::vector<std::string> excluded_components;  // Tests, docs, examples
     bool is_integrated = false;
-    std::chrono::sys_seconds integration_date;
+    std::chrono::system_clock::time_point integration_date;
     size_t estimated_size_bytes = 0;
     std::string component_type;  // "core", "optional", "development"
 };
@@ -45,7 +45,7 @@ struct AttributionInfo {
     std::string origin_path;
     std::string origin_commit;
     std::string origin_license;
-    std::chrono::sys_days extracted_date;
+    std::chrono::system_clock::time_point extracted_date;
     std::string extracted_by;
     std::string modifications;
     std::string spdx_license_identifier;

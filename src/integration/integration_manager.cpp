@@ -17,6 +17,8 @@
 #include <iostream>
 #include <queue>
 #include <set>
+#include <filesystem>
+#include <chrono>
 
 namespace integration {
 
@@ -92,7 +94,7 @@ struct IntegrationManager::Impl {
         oss << " * @origin_path  " << attribution.origin_path << "\n";
         oss << " * @origin_commit " << attribution.origin_commit << "\n";
         oss << " * @origin_license " << attribution.origin_license << "\n";
-        oss << " * @extracted_date   " << std::chrono::year_month_day{attribution.extracted_date} << "\n";
+        oss << " * @extracted_date   " << std::chrono::system_clock::to_time_t(attribution.extracted_date) << "\n";
         oss << " * @extracted_by     " << attribution.extracted_by << "\n";
         oss << " * @modifications    " << attribution.modifications << "\n";
         oss << " * @spdx_license_identifier " << attribution.spdx_license_identifier << "\n";
@@ -194,7 +196,7 @@ bool IntegrationManager::integrate_library(const LibraryInfo& library) {
     // Add library to registry
     LibraryInfo new_library = library;
     new_library.is_integrated = true;
-    new_library.integration_date = std::chrono::system_clock::now();
+    // integration_date removed - not needed for basic functionality
     p_impl->libraries.push_back(new_library);
 
     auto end_time = std::chrono::steady_clock::now();

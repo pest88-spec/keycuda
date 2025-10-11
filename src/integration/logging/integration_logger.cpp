@@ -15,6 +15,14 @@
 #include <filesystem>
 #include <random>
 #include <iomanip>
+#include <mutex>
+#include <memory>
+#include <fstream>
+#include <sstream>
+#include <chrono>
+#include <map>
+#include <vector>
+#include <string>
 
 namespace integration {
 namespace logging {
