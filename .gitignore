@@ -14,7 +14,10 @@ telemetry/
 
 # Documentation
 AGENTS.md
-docs/
+# docs/ - Allow session progress and audit reports
+!docs/*.md
+!docs/plans/*.md
+!docs/validation/*.md
 !docs/third_party_patches/
 
 # AI guidance files (local use only)

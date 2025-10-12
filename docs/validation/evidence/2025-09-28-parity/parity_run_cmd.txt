@@ -1,0 +1,5 @@
+Command: ./Puzzle71Solver --keyspace 0xa00:0xbff --target-address 1KvP21twgz7RTnDbAztPGTjx3YCAk3Evpu --operator-id test --operator-purpose parity --parity-test-scalar 0xabc --telemetry-jsonl telemetry_parity --enable-checkpoint
+Working directory: build/
+Run timestamp (UTC): 2025-09-28T02:13:04Z
+Host GPU: NVIDIA GeForce RTX 2080 Ti (sm_75)
+Notes: parity override inserts known scalar 0xabc for GPU/CPU consistency check

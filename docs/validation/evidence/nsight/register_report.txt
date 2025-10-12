@@ -1,0 +1,75 @@
+
+Fatbin ptx code:
+================
+arch = sm_75
+code version = [8,0]
+host = linux
+compile_size = 64bit
+compressed
+identifier = /mnt/d/mybitcoin/puzzlekeyhunt/PuzzleKeyhunt/src/puzzle71_kernel.cu
+ptxasOptions = --compile-only --generate-line-info 
+
+Fatbin elf code:
+================
+arch = sm_75
+code version = [1,7]
+host = linux
+compile_size = 64bit
+compressed
+identifier = /mnt/d/mybitcoin/puzzlekeyhunt/PuzzleKeyhunt/src/puzzle71_kernel.cu
+
+Resource usage:
+ Common:
+  GLOBAL:24 CONSTANT[3]:212
+ Function __nv_static_40__2e507991_18_puzzle71_kernel_cu_a5e954b8__ZN51_GLOBAL__N__2e507991_18_puzzle71_kernel_cu_a5e954b819Puzzle71FusedKernelEii:
+  REG:112 STACK:0 SHARED:0 LOCAL:0 CONSTANT[0]:360 TEXTURE:0 SURFACE:0 SAMPLER:0
+
+Fatbin ptx code:
+================
+arch = sm_86
+code version = [8,0]
+host = linux
+compile_size = 64bit
+compressed
+identifier = /mnt/d/mybitcoin/puzzlekeyhunt/PuzzleKeyhunt/src/puzzle71_kernel.cu
+ptxasOptions = --compile-only --generate-line-info 
+
+Fatbin elf code:
+================
+arch = sm_86
+code version = [1,7]
+host = linux
+compile_size = 64bit
+compressed
+identifier = /mnt/d/mybitcoin/puzzlekeyhunt/PuzzleKeyhunt/src/puzzle71_kernel.cu
+
+Resource usage:
+ Common:
+  GLOBAL:24 CONSTANT[3]:212
+ Function __nv_static_40__2e507991_18_puzzle71_kernel_cu_a5e954b8__ZN51_GLOBAL__N__2e507991_18_puzzle71_kernel_cu_a5e954b819Puzzle71FusedKernelEii:
+  REG:94 STACK:0 SHARED:0 LOCAL:0 CONSTANT[0]:360 TEXTURE:0 SURFACE:0 SAMPLER:0
+
+Fatbin ptx code:
+================
+arch = sm_89
+code version = [8,0]
+host = linux
+compile_size = 64bit
+compressed
+identifier = /mnt/d/mybitcoin/puzzlekeyhunt/PuzzleKeyhunt/src/puzzle71_kernel.cu
+ptxasOptions = --compile-only --generate-line-info 
+
+Fatbin elf code:
+================
+arch = sm_89
+code version = [1,7]
+host = linux
+compile_size = 64bit
+compressed
+identifier = /mnt/d/mybitcoin/puzzlekeyhunt/PuzzleKeyhunt/src/puzzle71_kernel.cu
+
+Resource usage:
+ Common:
+  GLOBAL:24 CONSTANT[3]:212
+ Function __nv_static_40__2e507991_18_puzzle71_kernel_cu_a5e954b8__ZN51_GLOBAL__N__2e507991_18_puzzle71_kernel_cu_a5e954b819Puzzle71FusedKernelEii:
+  REG:94 STACK:0 SHARED:0 LOCAL:0 CONSTANT[0]:360 TEXTURE:0 SURFACE:0 SAMPLER:0

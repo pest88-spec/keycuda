@@ -1,0 +1,20 @@
+{
+  "block_dim": 256,
+  "created_at": "2025-10-01T02:15:44Z",
+  "encryption_cipher": "AES-256-GCM",
+  "grid_dim": 2,
+  "keys_total": 512,
+  "next_scalar": "0xc00",
+  "nonce": "ETGf3YQM+EEck1vP",
+  "path": "payload-0xa00-2025-10-01T02:15:44Z.chk",
+  "payload_sha256": "9723786c1a5b6197b40d2d1f622ca8666f394fbc2185cf01606dd95542567f6b",
+  "pbkdf2_iterations": 200000,
+  "points_per_thread": 1,
+  "processed_keys": "0x200",
+  "retention_expiry": "2025-10-31T02:15:44Z",
+  "salt": "TlXzeBF/ujkyZD2SeI9Gpw==",
+  "shard_end": "0xbff",
+  "shard_id": "device-0",
+  "shard_start": "0xa00",
+  "version": "1.0"
+}

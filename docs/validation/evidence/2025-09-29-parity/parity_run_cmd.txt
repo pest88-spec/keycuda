@@ -1,0 +1,1 @@
+cd build && ./Puzzle71Solver --keyspace 0xa00:0xbff --target-address 1KvP21twgz7RTnDbAztPGTjx3YCAk3Evpu --operator-id doc --operator-purpose parity --parity-test-scalar 0xabc --telemetry-jsonl telemetry_parity_latest --enable-checkpoint

@@ -1,0 +1,1 @@
+{"candidate_count":1,"device_id":0,"elapsed_ms":1,"keys_per_sec":512000.0,"operator_id":"doc","operator_purpose":"parity","processed_keys":512,"processed_keys_hex":"0x200","shard":{"end":"0xbff","next_scalar":"0xc00","start":"0xa00"},"status":"ok","timestamp":"2025-09-29T12:30:38Z"}

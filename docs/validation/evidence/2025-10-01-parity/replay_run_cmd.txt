@@ -1,0 +1,3 @@
+Replay verification (2025-10-01)
+Command: scripts/replay/verify-replay.sh build/checkpoints/manifest-0xa00-2025-10-01T02:15:44Z.json docs/validation/evidence/2025-10-01-parity/puzzle71solver.ndjson
+Exit status: 0

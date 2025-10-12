@@ -1,0 +1,3 @@
+Puzzle71Solver parity run (2025-10-01)
+Command: cd build && ./Puzzle71Solver --keyspace 0xa00:0xbff --target-address 1PWo3JeB9jrGwfHDNpdGK54CRas7fsVzXU --operator-id parity --operator-purpose doc --device 0 --parity-test-scalar 0xabc --telemetry-jsonl ../docs/validation/evidence/2025-10-01-parity --luck-file ../docs/validation/evidence/2025-10-01-parity/luck_parity_run.txt --enable-checkpoint
+Exit status: 0
