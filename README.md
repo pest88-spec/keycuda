@@ -673,6 +673,46 @@ chmod +x deploy_puzzle71solver.sh
 
 ---
 
+## 项目架构概览
+
+### 核心设计理念
+
+Puzzle71Solver采用**源码融合架构**（Source Code Fusion Architecture），智能提取并集成BitCrack和CudaBrainSecp的经过验证的组件，统一在定制的KeyhuntCore框架内。这种方法在保持科学严谨性、性能优化和可扩展性的同时，充分利用现有的高质量实现。
+
+### 融合架构设计
+
+```
+KeyhuntCore/ (定制框架骨架)
+├── ecc/                    # ECC kernels (从CudaBrainSecp提取+优化)
+│   ├── secp256k1.cu/.h    # 主ECC接口
+│   ├── secp256k1_math.cu  # 256位模运算 (提取+优化)
+│   ├── secp256k1_point.cu # 椭圆曲线点运算 (提取+优化)
+│   └── secp256k1_cpu.cpp  # CPU参考实现
+├── scan/                   # 扫描框架 (借鉴BitCrack设计)
+│   ├── scanner.cu/.h      # 范围扫描逻辑 (借鉴+重构)
+│   └── checkpoint.cpp     # 检查点系统 (定制)
+├── compare/                # 地址比较模块 (融合BitCrack逻辑)
+│   ├── hash.cu/.h         # 地址生成管道 (提取+优化)
+│   └── bloom_filter.cu    # GPU Bloom Filter (借鉴+改进)
+└── utils/                  # 定制工具模块
+    ├── logger.cpp          # 日志系统
+    ├── timer.cpp           # 性能计时
+    └── config.cpp          # 配置管理
+```
+
+### v0.3.0+ 优化架构
+
+**GPU内存层级优化**：
+- **共享内存优化**: 预计算ECC表加载，消除银行冲突，≥90%效率
+- **内存合并访问**: Structure-of-Arrays布局，≥90%全局加载效率
+- **Warp级原语**: Shuffle指令实现寄存器级通信
+- **并行算法**: Thrust/CUB库替代串行循环，10-100×加速
+
+**性能保护系统**：
+- **零回归保护**: CI自动化性能门禁，SHA-256保护基准文件
+- **科学验证**: CPU/GPU一致性验证，<1e-10精度要求
+- **自适应批次**: GPU内存动态调整
+
 ## 技术架构
 
 ### 核心模块
@@ -682,14 +722,20 @@ chmod +x deploy_puzzle71solver.sh
 ```
 src/
 ├── KeyhuntCore/          # GPU核心引擎
-│   ├── gpu/             # GPU执行器和批次规划
-│   ├── adapters/        # BitCrack适配层
-│   └── shards/          # 范围分片
+│   ├── ecc/              # ECC运算模块 (CudaBrainSecp来源)
+│   ├── scan/             # 私钥范围扫描框架 (BitCrack设计)
+│   ├── compare/          # 地址生成和比较
+│   ├── gpu/              # GPU检测和管理
+│   ├── arch/             # 架构特定优化
+│   ├── memory/           # 内存管理和优化
+│   ├── validation/       # CPU/GPU一致性验证
+│   └── utils/            # 日志、计时、文件I/O工具
 ├── extracted/           # 提取的第三方代码（含完整@origin溯源）
-│   └── bitcrack/        # BitCrack GPU kernel源码（40个文件）
-│       ├── cudaMath/    # secp256k1.cuh, sha256.cuh, ripemd160.cuh
-│       ├── CudaKeySearchDevice/  # GPU设备内核
-│       └── ...          # AddressUtil, CryptoUtil等
+│   ├── bitcrack/        # BitCrack GPU kernel源码（40个文件）
+│   │   ├── cudaMath/    # secp256k1.cuh, sha256.cuh, ripemd160.cuh
+│   │   ├── CudaKeySearchDevice/  # GPU设备内核
+│   │   └── ...          # AddressUtil, CryptoUtil等
+│   └── secp256k1-zkp/   # secp256k1-zkp源码（58个文件，含完整@origin溯源）
 ├── crypto/              # secp256k1 CPU验证
 ├── solver.cpp           # 主扫描逻辑
 └── main.cpp             # 入口
@@ -704,15 +750,40 @@ docs/
 └── reference-sources.md # 代码溯源文档
 
 tests/
-└── validation/
-    └── test_known_private_key_chain.cpp  # 独立验证链路
+├── unit/                # 单元测试 (15个测试文件)
+├── validation/          # CPU/GPU一致性验证
+└── benchmarks/          # 性能基准测试
 ```
 
 **架构说明**：
 - ✅ **BitCrack代码**：已从Git子模块提取到`src/extracted/bitcrack/`
+- ✅ **CudaBrainSecp代码**：ECC核心算法已集成到`KeyhuntCore/ecc/`
 - ✅ **完整溯源**：每个文件含@origin头（来源、commit、许可证）
 - ✅ **许可合规**：MIT许可证保存在`docs/licenses/`
 - 📖 **详细文档**：`docs/reference-sources.md`记录所有提取细节
+
+### 模块职责详细说明
+
+**ECC模块 (`ecc/`)**: 实现secp256k1椭圆曲线运算的CUDA加速。项目最近完成了重大修复，将基于XOR的伪操作替换为使用libsecp256k1作为CPU参考的适当椭圆曲线数学。
+
+**扫描模块 (`scan/`)**: 提供私钥范围扫描框架，支持GPU并行处理和断点续传功能。使用公式 `priv = start + stride * threadId` 进行系统性密钥生成。
+
+**比较模块 (`compare/`)**: 实现完整的地址生成管道：公钥 → SHA256 → RIPEMD160 → Hash160 → Base58，支持多目标地址比较。
+
+**验证模块 (`validation/`)**: 提供CPU/GPU一致性验证，使用libsecp256k1作为权威参考。所有GPU计算都与CPU实现进行验证，精度要求<1e-10。
+
+### 构建系统
+
+项目使用CMake与CUDA支持。主要构建目标：
+- `Puzzle71Solver`: 主程序可执行文件
+- `puzzle71_tests`: 完整测试套件
+- `libsecp256k1.a`: Bitcoin官方secp256k1静态库
+
+**依赖管理**：
+- **BitCrack**: 源码提取，无外部依赖
+- **GoogleTest**: CMake FetchContent自动获取
+- **nlohmann/json**: CMake FetchContent自动获取
+- **bitcoin-core/secp256k1**: Git子模块（CPU验证）
 
 ### 验证流程
 
@@ -727,6 +798,13 @@ GPU扫描 → 找到候选 → CPU验证
                        ↓
               匹配 → 保存到luck.txt
 ```
+
+### 配置系统
+
+**主配置**: `data/config.txt` - CUDA设置、性能参数
+**密钥范围**: `data/private_ranges.txt` - 待扫描的私钥范围（十六进制格式）
+**目标地址**: `data/target_addresses.txt` - 待匹配的Bitcoin地址
+**检查点**: `data/checkpoint.dat` - 中断扫描的恢复数据
 
 ---
 
