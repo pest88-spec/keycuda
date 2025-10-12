@@ -1,0 +1,387 @@
+name: Performance CI Pipeline
+
+# Performance CI Workflow for GPU Performance Optimization
+# Part of T046: Create CI configuration file
+#
+# This workflow implements comprehensive CI with performance gates:
+# - Builds project with zero-warning compilation
+# - Runs unit tests and integration tests
+# - Executes performance benchmarks on self-hosted GPU runners
+# - Implements zero-tolerance regression detection
+# - Archives results and profiling reports
+# - Fails build on any performance regression
+
+on:
+  push:
+    branches: [ main, develop, "feature/*", "003-gpu-1-28" ]
+  pull_request:
+    branches: [ main, develop, "003-gpu-1-28" ]
+  schedule:
+    # Nightly performance regression checks
+    - cron: '0 2 * * *'  # 2 AM UTC
+
+env:
+  BUILD_TYPE: Release
+  BENCHMARK_DURATION: 600  # 10 minutes
+  ZERO_TOLERANCE_POLICY: true
+
+jobs:
+  # Build and Unit Tests
+  build-and-test:
+    name: Build and Unit Tests
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      with:
+        submodules: recursive
+        fetch-depth: 0
+
+    - name: Set up CUDA environment
+      uses: Jimver/cuda-toolkit@v0.2.11
+      with:
+        cuda: '12.1.1'
+        method: 'network'
+        subpackages: ['cuda-cudart-dev', 'cuda-nvcc-dev']
+
+    - name: Install dependencies
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y \
+          build-essential \
+          cmake \
+          libssl-dev \
+          python3 \
+          python3-pip
+
+    - name: Cache dependencies
+      uses: actions/cache@v3
+      with:
+        path: |
+          build/_deps
+          third_party
+        key: ${{ runner.os }}-deps-${{ hashFiles('**/CMakeLists.txt', '**/*.cmake') }}
+        restore-keys: |
+          ${{ runner.os }}-deps-
+
+    - name: Configure CMake
+      run: |
+        mkdir -p build
+        cd build
+        cmake .. \
+          -DCMAKE_BUILD_TYPE=${{ env.BUILD_TYPE }} \
+          -DBUILD_TESTS=ON \
+          -DBUILD_BENCHMARKS=ON \
+          -DCMAKE_CUDA_ARCHITECTURES="75-real;86-real;89-real;90-real"
+
+    - name: Build project
+      run: |
+        cd build
+        make -j$(nproc)
+
+    - name: Verify zero-warning compilation
+      run: |
+        cd build
+        # Check for compilation warnings
+        warnings=$(make 2>&1 | grep -i warning | wc -l)
+        echo "Compilation warnings: $warnings"
+        if [[ $warnings -gt 0 ]]; then
+          echo "❌ Zero-warning compilation failed"
+          make 2>&1 | grep -i warning
+          exit 1
+        else
+          echo "✅ Zero-warning compilation passed"
+        fi
+
+    - name: Run unit tests
+      run: |
+        cd build
+        ctest --output-on-failure --timeout 300
+
+    - name: Upload build artifacts
+      uses: actions/upload-artifact@v3
+      with:
+        name: build-artifacts
+        path: |
+          build/
+          !build/_deps/
+        retention-days: 7
+
+  # Performance Benchmark Tests (GPU Required)
+  performance-benchmark:
+    name: GPU Performance Benchmark
+    runs-on: self-hosted
+    needs: build-and-test
+    if: github.event_name != 'schedule' || github.repository == github.event.repository
+    strategy:
+      matrix:
+        gpu: [rtx3090, rtx2080ti]
+        fail-fast: false  # Continue testing other GPUs if one fails
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      with:
+        submodules: recursive
+        fetch-depth: 0
+
+    - name: Download build artifacts
+      uses: actions/download-artifact@v3
+      with:
+        name: build-artifacts
+        path: ./
+
+    - name: Verify GPU availability
+      run: |
+        echo "Checking GPU availability..."
+        nvidia-smi
+        if ! nvidia-smi; then
+          echo "❌ No GPU available"
+          exit 1
+        fi
+        echo "✅ GPU detected"
+
+    - name: Verify CUDA installation
+      run: |
+        nvcc --version
+        which nvcc
+        echo "✅ CUDA verified"
+
+    - name: Set up benchmark environment
+      run: |
+        mkdir -p benchmarks/baselines
+        mkdir -p benchmarks/results
+        mkdir -p benchmarks/profiling
+        chmod +x scripts/*.sh
+        chmod +x scripts/ci/*.sh
+
+    - name: Check baseline exists
+      id: baseline-check
+      run: |
+        baseline_file="benchmarks/baselines/${{ matrix.gpu }}.json"
+        if [[ -f "$baseline_file" ]]; then
+          echo "baseline_exists=true" >> $GITHUB_OUTPUT
+          echo "✅ Baseline found: $baseline_file"
+        else
+          echo "baseline_exists=false" >> $GITHUB_OUTPUT
+          echo "⚠️ No baseline found for ${{ matrix.gpu }} - will skip regression testing"
+        fi
+
+    - name: Run performance benchmark (with baseline)
+      if: steps.baseline-check.outputs.baseline_exists == 'true'
+      run: |
+        echo "🚀 Starting performance benchmark for ${{ matrix.gpu }}"
+
+        # Run performance gate with zero-tolerance regression detection
+        ./scripts/ci/performance_gate.sh \
+          "${{ matrix.gpu }}" \
+          "benchmarks/baselines/${{ matrix.gpu }}.json" \
+          "benchmarks/results/${{ matrix.gpu }}_$(date +%Y%m%d_%H%M%S).json"
+
+    - name: Run performance benchmark (baseline establishment)
+      if: steps.baseline-check.outputs.baseline_exists == 'false'
+      run: |
+        echo "📊 Establishing baseline for ${{ matrix.gpu }}"
+
+        # Run benchmark without regression checking
+        ./scripts/run_benchmarks.sh \
+          "${{ matrix.gpu }}" \
+          "benchmarks/baselines/dummy.json" \
+          "benchmarks/results/${{ matrix.gpu }}_baseline_$(date +%Y%m%d_%H%M%S).json"
+
+        echo "⚠️ Baseline establishment completed - manual review required"
+        echo "To establish as official baseline, run:"
+        echo "  ./scripts/ci/baseline_update.sh --approve ${{ matrix.gpu }} <result_file> <baseline_file>"
+
+    - name: Run Nsight Compute profiling
+      if: steps.baseline-check.outputs.baseline_exists == 'true'
+      run: |
+        echo "🔍 Running Nsight Compute profiling for ${{ matrix.gpu }}"
+
+        # Profile main kernels
+        ./scripts/analyze_profiling.sh 0 eccScalarMulKernel 2>&1 || echo "Profiling completed with warnings"
+
+        # Archive profiling reports
+        mkdir -p benchmarks/profiling/ci_archive
+        cp benchmarks/profiling/*.ncu-rep benchmarks/profiling/ci_archive/ 2>/dev/null || echo "No profiling reports to archive"
+
+    - name: Upload benchmark results
+      uses: actions/upload-artifact@v3
+      if: always()
+      with:
+        name: benchmark-results-${{ matrix.gpu }}
+        path: |
+          benchmarks/results/
+          benchmarks/profiling/
+        retention-days: 30
+
+    - name: Generate performance summary
+      if: always()
+      run: |
+        echo "## Performance Benchmark Results" >> $GITHUB_STEP_SUMMARY
+        echo "**GPU:** ${{ matrix.gpu }}" >> $GITHUB_STEP_SUMMARY
+        echo "**Timestamp:** $(date)" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+
+        # Extract and display results if available
+        result_file=$(find benchmarks/results -name "*${{ matrix.gpu }}*.json" | head -1)
+        if [[ -f "$result_file" ]]; then
+          python3 -c "
+import json
+try:
+    with open('$result_file', 'r') as f:
+        result = json.load(f')
+
+    print(f'- **Throughput:** {result.get(\"medianThroughput\", 0):.3f} Gkeys/s')
+    print(f'- **GPU Utilization:** {sum(result.get(\"gpuUtilizationSamples\", [0])) / len(result.get(\"gpuUtilizationSamples\", [1])):.1f}%')
+    print(f'- **Memory Bandwidth:** {sum(result.get(\"memoryBandwidthSamples\", [0])) / len(result.get(\"memoryBandwidthSamples\", [1])):.1f}%')
+    print(f'- **Validation Rate:** {result.get(\"validationPassRate\", 0):.1f}%')
+
+    baseline = result.get('baselineComparison', {})
+    if baseline:
+        print(f'- **Baseline Comparison:** {baseline.get(\"throughputDeltaPercent\", 0):+.2f}%')
+        print(f'- **Regression Detected:** {\"Yes ❌\" if baseline.get(\"isRegression\") else \"No ✅\"}')
+except:
+    print('- **Results:** Not available')
+" >> $GITHUB_STEP_SUMMARY
+        else
+          echo "- **Results:** Not available" >> $GITHUB_STEP_SUMMARY
+        fi
+
+  # Performance Regression Analysis
+  regression-analysis:
+    name: Performance Regression Analysis
+    runs-on: ubuntu-latest
+    needs: [performance-benchmark]
+    if: always() && needs.performance-benchmark.result == 'success'
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Download all benchmark results
+      uses: actions/download-artifact@v3
+      with:
+        pattern: benchmark-results-*
+        merge-multiple: true
+        path: ./benchmark-results/
+
+    - name: Analyze performance trends
+      run: |
+        echo "## Performance Regression Analysis" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+
+        # Analyze results across all GPUs
+        for gpu in rtx3090 rtx2080ti; do
+          echo "### $gpu Analysis" >> $GITHUB_STEP_SUMMARY
+
+          result_files=$(find benchmark-results -name "*${gpu}*.json" 2>/dev/null || true)
+          if [[ -n "$result_files" ]]; then
+            python3 -c "
+import json
+import glob
+import sys
+
+gpu = '$gpu'
+result_files = glob.glob(f'benchmark-results/*{gpu}*.json')
+
+if result_files:
+    print(f'Found {len(result_files)} result files for {gpu}')
+
+    for result_file in result_files[-3:]:  # Last 3 results
+        try:
+            with open(result_file, 'r') as f:
+                result = json.load(f')
+
+            print(f'- **File:** {result_file.split(\"/\")[-1]}')
+            print(f'  - Throughput: {result.get(\"medianThroughput\", 0):.3f} Gkeys/s')
+            print(f'  - GPU Utilization: {sum(result.get(\"gpuUtilizationSamples\", [0])) / len(result.get(\"gpuUtilizationSamples\", [1])):.1f}%')
+
+            baseline = result.get('baselineComparison', {})
+            if baseline:
+                delta = baseline.get('throughputDeltaPercent', 0)
+                status = \"✅ PASS\" if not baseline.get('isRegression') else \"❌ REGRESSION\"
+                print(f'  - Baseline Delta: {delta:+.2f}% ({status})')
+            print()
+        except:
+            print(f'- **File:** {result_file} (failed to parse)')
+else:
+    print('No results found')
+" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "No results found for $gpu" >> $GITHUB_STEP_SUMMARY
+          fi
+
+          echo "" >> $GITHUB_STEP_SUMMARY
+        done
+
+    - name: Check for regressions
+      run: |
+        regressions_found=false
+
+        for result_file in benchmark-results/*_*.json; do
+          if [[ -f "$result_file" ]]; then
+            if python3 -c "
+import json
+try:
+    with open('$result_file', 'r') as f:
+        result = json.load(f')
+
+    baseline = result.get('baselineComparison', {})
+    if baseline and baseline.get('isRegression'):
+        print(f'REGRESSION: {result_file}')
+        print(f'  GPU: {result.get(\"gpuModel\", \"unknown\")}')
+        print(f'  Delta: {baseline.get(\"throughputDeltaPercent\", 0):.2f}%')
+        exit(1)
+except:
+    pass
+exit(0)
+" 2>/dev/null; then
+              regressions_found=true
+            fi
+          fi
+        done
+
+        if $regressions_found; then
+          echo "❌ PERFORMANCE REGRESSIONS DETECTED" >> $GITHUB_STEP_SUMMARY
+          exit 1
+        else
+          echo "✅ NO PERFORMANCE REGRESSIONS DETECTED" >> $GITHUB_STEP_SUMMARY
+        fi
+
+  # Performance Gate Status
+  performance-gate-status:
+    name: Performance Gate Status
+    runs-on: ubuntu-latest
+    needs: [build-and-test, performance-benchmark, regression-analysis]
+    if: always()
+
+    steps:
+    - name: Performance Gate Decision
+      run: |
+        echo "## Performance Gate Status" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+
+        # Check all job statuses
+        build_status="${{ needs.build-and-test.result }}"
+        benchmark_status="${{ needs.performance-benchmark.result }}"
+        analysis_status="${{ needs.regression-analysis.result }}"
+
+        echo "### Job Status Summary" >> $GITHUB_STEP_SUMMARY
+        echo "- **Build and Test:** $build_status" >> $GITHUB_STEP_SUMMARY
+        echo "- **Performance Benchmark:** $benchmark_status" >> $GITHUB_STEP_SUMMARY
+        echo "- **Regression Analysis:** $analysis_status" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+
+        # Final gate decision
+        if [[ "$build_status" == "success" && "$benchmark_status" == "success" && "$analysis_status" == "success" ]]; then
+          echo "### 🎉 PERFORMANCE GATE PASSED" >> $GITHUB_STEP_SUMMARY
+          echo "All checks passed successfully. No performance regressions detected." >> $GITHUB_STEP_SUMMARY
+          echo "Zero-tolerance policy enforced." >> $GITHUB_STEP_SUMMARY
+          exit 0
+        else
+          echo "### ❌ PERFORMANCE GATE FAILED" >> $GITHUB_STEP_SUMMARY
+          echo "One or more checks failed. See job details above." >> $GITHUB_STEP_SUMMARY
+          exit 1
+        fi

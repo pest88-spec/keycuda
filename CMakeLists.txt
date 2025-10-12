@@ -11,9 +11,9 @@ option(DEPLOYMENT_SELF_CONTAINED "Create self-contained deployment packages" ON)
 option(DEPLOYMENT_INCLUDE_DOCS "Include documentation in deployment packages" ON)
 option(DEPLOYMENT_COMPRESS_PACKAGE "Compress deployment packages" ON)
 
-set(CMAKE_CXX_STANDARD 17)
+set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
-set(CMAKE_CUDA_STANDARD 17)
+set(CMAKE_CUDA_STANDARD 20)
 set(CMAKE_CUDA_STANDARD_REQUIRED ON)
 set(CMAKE_POSITION_INDEPENDENT_CODE ON)
 
@@ -31,8 +31,10 @@ add_compile_options(
   "$<$<COMPILE_LANGUAGE:CXX>:-Wall>"
   "$<$<COMPILE_LANGUAGE:CXX>:-Wextra>"
   "$<$<COMPILE_LANGUAGE:CXX>:-Wpedantic>"
+  "$<$<COMPILE_LANGUAGE:CXX>:-Werror>"
   "$<$<COMPILE_LANGUAGE:CXX>:-fno-omit-frame-pointer>"
   "$<$<COMPILE_LANGUAGE:CUDA>:-Xcompiler=-fno-omit-frame-pointer>"
+  "$<$<COMPILE_LANGUAGE:CUDA>:-Xcompiler=-Werror>"
   "$<$<COMPILE_LANGUAGE:CUDA>:--expt-relaxed-constexpr>"
   "$<$<COMPILE_LANGUAGE:CUDA>:-lineinfo>"
 )
@@ -75,6 +77,12 @@ set_target_properties(Puzzle71Solver PROPERTIES ENABLE_EXPORTS ON)
 
 # Find CUDA and add include directories for both .cu and .cpp files
 find_package(CUDAToolkit REQUIRED)
+
+# Thrust 2.x and CUB 2.x are header-only libraries included in CUDA Toolkit 12.x
+# Explicitly set include paths for documentation purposes
+set(THRUST_INCLUDE_DIR "${CUDAToolkit_INCLUDE_DIRS}")
+set(CUB_INCLUDE_DIR "${CUDAToolkit_INCLUDE_DIRS}")
+
 target_include_directories(Puzzle71Solver PRIVATE
   ${CUDAToolkit_INCLUDE_DIRS}
   src
@@ -344,6 +352,9 @@ if(NOT OFFLINE_BUILD)
     target_compile_definitions(puzzle71_tests PRIVATE PUZZLE71_TESTING=1)
     target_include_directories(puzzle71_tests PRIVATE
       src
+      src/KeyhuntCore
+      src/KeyhuntCore/kernels
+      src/KeyhuntCore/gpu
       src/extracted/bitcrack
     )
     # Include bitcoin-core secp256k1 only if available

@@ -4,6 +4,9 @@
 #include <algorithm>
 #include <stdexcept>
 
+#include <cub/cub.cuh>
+#include <cuda_runtime.h>
+
 namespace puzzle71::gpu {
 
 namespace {
@@ -12,6 +15,76 @@ core::UInt256 Increment(const core::UInt256& value, std::uint64_t delta) {
     core::UInt256 out = value;
     out.AddUint64(delta);
     return out;
+}
+
+/**
+ * @brief CUDA kernel for parallel scalar generation using CUB BlockScan (T031)
+ *
+ * Each thread generates a sequence of scalar values using parallel prefix sum.
+ * Replaces the serial for loop with efficient parallel computation.
+ */
+__global__ void parallelScalarGenerationKernel(
+    const core::UInt256 start_value,
+    core::UInt256* scalars,
+    const std::uint64_t count)
+{
+    // Specialize BlockScan for uint64_t prefix sums
+    typedef cub::BlockScan<std::uint64_t, 256> BlockScanT;
+
+    // Allocate shared memory for BlockScan
+    __shared__ typename BlockScanT::TempStorage temp_storage;
+
+    // Thread identification
+    const std::uint64_t global_tid = blockIdx.x * blockDim.x + threadIdx.x;
+    const std::uint64_t stride = blockDim.x * gridDim.x;
+
+    // Each thread processes multiple elements if necessary
+    for (std::uint64_t base_idx = global_tid; base_idx < count; base_idx += stride) {
+        // This thread's contribution (always 1 for sequential increment)
+        std::uint64_t thread_increment = 1;
+
+        // Compute prefix sum to get this thread's starting offset
+        std::uint64_t thread_offset;
+        BlockScanT(temp_storage).ExclusiveSum(thread_increment, thread_offset);
+
+        // Synchronize to ensure all threads have their offsets
+        __syncthreads();
+
+        // Generate the scalar value for this thread's element
+        core::UInt256 current = start_value;
+        current.AddUint64(base_idx + thread_offset);
+
+        // Store result
+        if (base_idx < count) {
+            scalars[base_idx] = current;
+        }
+
+        // Synchronize before next iteration
+        __syncthreads();
+    }
+}
+
+/**
+ * @brief Simplified CUDA kernel for batch scalar generation (T031)
+ *
+ * More efficient version that directly computes scalars without prefix scan,
+ * since each scalar is just start_value + index.
+ */
+__global__ void batchScalarGenerationKernel(
+    const core::UInt256 start_value,
+    core::UInt256* scalars,
+    const std::uint64_t count)
+{
+    const std::uint64_t global_tid = blockIdx.x * blockDim.x + threadIdx.x;
+    const std::uint64_t stride = blockDim.x * gridDim.x;
+
+    // Each thread directly computes its assigned scalars
+    for (std::uint64_t idx = global_tid; idx < count; idx += stride) {
+        // Direct computation: scalar = start_value + index
+        core::UInt256 current = start_value;
+        current.AddUint64(idx);
+        scalars[idx] = current;
+    }
 }
 
 }  // namespace
@@ -78,11 +151,31 @@ DeviceBatch DeviceBuffers::PrepareBatch(const core::UInt256& start, std::uint64_
 
     std::uint64_t span = std::min<std::uint64_t>(batch_size, slots_);
 
-    core::UInt256 current = start;
-    for (std::uint64_t i = 0; i < span; ++i) {
-        host_scalars_[i] = current;
-        current = Increment(current, 1);
+    // Replace serial loop with parallel CUDA kernel (T031)
+    core::UInt256* d_scalars;
+    cudaMalloc(&d_scalars, span * sizeof(core::UInt256));
+
+    // Choose optimal launch configuration
+    int blockSize = 256;
+    int gridSize = (span + blockSize - 1) / blockSize;
+    gridSize = std::min(gridSize, 65535); // Max grid size
+
+    // Launch parallel scalar generation kernel
+    batchScalarGenerationKernel<<<gridSize, blockSize>>>(start, d_scalars, span);
+
+    // Check for kernel launch errors
+    cudaError_t error = cudaGetLastError();
+    if (error != cudaSuccess) {
+        cudaFree(d_scalars);
+        throw std::runtime_error("CUDA kernel launch failed: " + std::string(cudaGetErrorString(error)));
     }
+
+    // Synchronize and copy results back to host
+    cudaDeviceSynchronize();
+    cudaMemcpy(host_scalars_.data(), d_scalars, span * sizeof(core::UInt256), cudaMemcpyDeviceToHost);
+
+    // Cleanup device memory
+    cudaFree(d_scalars);
 
     DeviceBatch batch;
     batch.scalars.assign(host_scalars_.begin(), host_scalars_.begin() + span);

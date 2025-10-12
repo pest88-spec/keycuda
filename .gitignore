@@ -150,6 +150,9 @@ perf.data.old
 *.fatbin
 *.gpu
 *.sass
+*.ncu-rep
+*.nsys-rep
+*.qdrep
 
 # Checkpoint and state files
 checkpoint*.dat
