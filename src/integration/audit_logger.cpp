@@ -34,7 +34,8 @@ AuditLogger::AuditLogger(
     integrity_enabled_(integrity_enabled),
     max_entries_per_file_(max_entries_per_file),
     max_log_files_(max_log_files),
-    auto_rotate_enabled_(auto_rotate) {
+    auto_rotate_enabled_(auto_rotate),
+    flush_thread_running_(false) {  // P1-006: Initialize flush thread flag
 
     // Create log directory if it doesn't exist
     if (!log_directory_.empty()) {
@@ -51,10 +52,36 @@ AuditLogger::AuditLogger(
     if (!entries_.empty()) {
         last_entry_hash_ = entries_.back().entry_hash;
     }
+
+    // P1-006: Initialize WORM storage
+    last_flush_time_ = std::chrono::steady_clock::now();
+
+    // Open log file in append mode (WORM)
+    worm_file_.open(current_log_file_, std::ios::app | std::ios::out);
+
+    // Start background flush thread
+    start_flush_thread();
 }
 
 AuditLogger::~AuditLogger() {
+    // P1-006: Stop flush thread first
+    stop_flush_thread();
+
     std::lock_guard<std::mutex> lock(log_mutex_);
+
+    // P1-006: Final flush before closing
+    force_flush();
+
+    // Close WORM file
+    if (worm_file_.is_open()) {
+        worm_file_.close();
+    }
+
+    // Set current log file as immutable
+    if (!current_log_file_.empty()) {
+        set_file_immutable(current_log_file_);
+    }
+
     if (auto_rotate_enabled_) {
         rotate_log_file_if_needed();
     }
@@ -579,13 +606,31 @@ AuditLogger::AuditEntry AuditLogger::deserialize_entry(const std::string& json_s
 }
 
 bool AuditLogger::write_entry_to_file(const AuditEntry& entry) {
-    std::ofstream file(current_log_file_, std::ios::app);
-    if (!file.is_open()) {
-        return false;
+    // P1-006: WORM storage implementation
+    std::lock_guard<std::mutex> lock(flush_mutex_);
+
+    // If file is not open, open in append mode (WORM)
+    if (!worm_file_.is_open()) {
+        worm_file_.open(current_log_file_, std::ios::app | std::ios::out);
+        if (!worm_file_.is_open()) {
+            return false;
+        }
     }
 
-    file << serialize_entry(entry) << "\n";
-    return file.good();
+    // Write entry to file
+    worm_file_ << serialize_entry(entry) << "\n";
+
+    // Check if we need to flush (5-second rule)
+    auto now = std::chrono::steady_clock::now();
+    auto elapsed = std::chrono::duration_cast<std::chrono::seconds>(
+        now - last_flush_time_).count();
+
+    if (elapsed >= 5) {
+        force_flush();
+        last_flush_time_ = now;
+    }
+
+    return worm_file_.good();
 }
 
 bool AuditLogger::load_entries_from_file(const std::string& filename) {
@@ -767,4 +812,112 @@ namespace {
                       [](unsigned char c) { return std::tolower(c); });
         return result;
     }
+}
+
+// ============================================================================
+// P1-006: WORM (Write-Once-Read-Many) Storage Implementation
+// ============================================================================
+
+void AuditLogger::start_flush_thread() {
+    flush_thread_running_ = true;
+    flush_thread_ = std::thread(&AuditLogger::flush_thread_worker, this);
+}
+
+void AuditLogger::stop_flush_thread() {
+    flush_thread_running_ = false;
+    if (flush_thread_.joinable()) {
+        flush_thread_.join();
+    }
+}
+
+void AuditLogger::flush_thread_worker() {
+    while (flush_thread_running_) {
+        // Sleep for 5 seconds
+        std::this_thread::sleep_for(std::chrono::seconds(5));
+
+        // Flush to disk
+        std::lock_guard<std::mutex> lock(flush_mutex_);
+        force_flush();
+        last_flush_time_ = std::chrono::steady_clock::now();
+    }
+}
+
+void AuditLogger::force_flush() {
+    if (!worm_file_.is_open()) {
+        return;
+    }
+
+    // Flush C++ stream buffer
+    worm_file_.flush();
+
+    // Force OS-level flush to disk (fsync)
+    #ifdef _WIN32
+        // Windows: FlushFileBuffers
+        #include <io.h>
+        #include <windows.h>
+        int fd = _fileno(worm_file_.rdbuf()->_Filebuffer::_Myfile);
+        if (fd != -1) {
+            HANDLE hFile = (HANDLE)_get_osfhandle(fd);
+            if (hFile != INVALID_HANDLE_VALUE) {
+                FlushFileBuffers(hFile);
+            }
+        }
+    #else
+        // Linux/Unix: fsync
+        #include <unistd.h>
+        int fd = fileno(worm_file_.rdbuf()->_M_file.fd());
+        if (fd != -1) {
+            fsync(fd);
+        }
+    #endif
+}
+
+bool AuditLogger::set_file_immutable(const std::string& path) {
+    if (path.empty() || !std::filesystem::exists(path)) {
+        return false;
+    }
+
+    #ifdef _WIN32
+        // Windows: Set read-only attribute
+        DWORD attrs = GetFileAttributesA(path.c_str());
+        if (attrs == INVALID_FILE_ATTRIBUTES) {
+            return false;
+        }
+        return SetFileAttributesA(path.c_str(),
+                                  attrs | FILE_ATTRIBUTE_READONLY) != 0;
+    #else
+        // Linux: Use chattr +i (requires root privileges)
+        // Fallback to chmod 444 (read-only for all)
+        std::filesystem::permissions(path,
+            std::filesystem::perms::owner_read |
+            std::filesystem::perms::group_read |
+            std::filesystem::perms::others_read,
+            std::filesystem::perm_options::replace);
+        return true;
+    #endif
+}
+
+bool AuditLogger::remove_file_immutable(const std::string& path) {
+    if (path.empty() || !std::filesystem::exists(path)) {
+        return false;
+    }
+
+    #ifdef _WIN32
+        // Windows: Remove read-only attribute
+        DWORD attrs = GetFileAttributesA(path.c_str());
+        if (attrs == INVALID_FILE_ATTRIBUTES) {
+            return false;
+        }
+        return SetFileAttributesA(path.c_str(),
+                                  attrs & ~FILE_ATTRIBUTE_READONLY) != 0;
+    #else
+        // Linux: Restore normal permissions
+        std::filesystem::permissions(path,
+            std::filesystem::perms::owner_read |
+            std::filesystem::perms::owner_write |
+            std::filesystem::perms::group_read |
+            std::filesystem::perms::others_read,
+            std::filesystem::perm_options::replace);
+        return true;
+    #endif
 }

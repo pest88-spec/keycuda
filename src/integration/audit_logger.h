@@ -25,6 +25,8 @@
 #include <filesystem>
 #include <fstream>
 #include <mutex>
+#include <thread>      // P1-006: For flush thread
+#include <atomic>      // P1-006: For atomic flags
 #include <openssl/sha.h>
 
 /**
@@ -130,6 +132,13 @@ private:
     size_t max_log_files_;
     bool auto_rotate_enabled_;
 
+    // P1-006: WORM (Write-Once-Read-Many) storage members
+    std::ofstream worm_file_;                                    // WORM file stream (append-only)
+    std::chrono::steady_clock::time_point last_flush_time_;      // Last flush timestamp
+    std::mutex flush_mutex_;                                     // Flush operation mutex
+    std::thread flush_thread_;                                   // Background flush thread
+    std::atomic<bool> flush_thread_running_;                     // Flush thread running flag
+
     /**
      * Generate unique entry ID
      */
@@ -204,6 +213,44 @@ private:
      * Convert string to severity
      */
     Severity string_to_severity(const std::string& str) const;
+
+    // P1-006: WORM storage private methods
+
+    /**
+     * Start background flush thread
+     */
+    void start_flush_thread();
+
+    /**
+     * Stop background flush thread
+     */
+    void stop_flush_thread();
+
+    /**
+     * Flush thread worker function
+     */
+    void flush_thread_worker();
+
+    /**
+     * Force flush to disk (fsync)
+     */
+    void force_flush();
+
+    /**
+     * Set file as immutable (read-only)
+     *
+     * @param path File path
+     * @return True if successful
+     */
+    bool set_file_immutable(const std::string& path);
+
+    /**
+     * Remove immutable attribute from file
+     *
+     * @param path File path
+     * @return True if successful
+     */
+    bool remove_file_immutable(const std::string& path);
 
 public:
     /**
