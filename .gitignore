@@ -14,11 +14,49 @@ telemetry/
 
 # Documentation
 AGENTS.md
-# docs/ - Allow session progress and audit reports
-!docs/*.md
+
+# Session summaries and temporary documentation (local use only)
+SESSION_*.md
+PROGRESS_*.md
+FINAL_*.md
+FIXES_*.md
+P0-*.md
+P1-*.md
+ARCHITECTURE_*.md
+DOCUMENTATION_*.md
+*_SESSION_*.md
+*_SUMMARY_*.md
+*_REPORT_*.md
+*_PROGRESS_*.md
+*_DASHBOARD_*.md
+build_log.txt
+memories/
+
+# Audit reports (keep only essential ones)
+audits/AUDIT_SUMMARY_DIGEST_*.md
+audits/PERFORMANCE_BASELINE_VERIFICATION_*.md
+audits/PROJECT_AUDIT_REPORT_*.md
+audits/SECURITY_VULNERABILITY_ANALYSIS_*.md
+
+# Verification scripts (local use only)
+scripts/verify_audit_fixes.*
+scripts/verify-documentation.sh
+
+# docs/ - Allow essential documentation only
+!docs/fixes/L-*.md
 !docs/plans/*.md
 !docs/validation/*.md
 !docs/third_party_patches/
+docs/fixes/P0-*.md
+docs/fixes/P1-*.md
+docs/fixes/*_PROGRESS.md
+docs/fixes/*_SUMMARY.md
+docs/fixes/*_REPORT.md
+docs/fixes/SMOKE_TEST_*.md
+docs/fixes/REMAINING_*.md
+docs/profiling/
+docs/reviews/COMPREHENSIVE_*.md
+docs/reviews/specification-analysis-*.md
 
 # AI guidance files (local use only)
 specs/
