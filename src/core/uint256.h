@@ -5,6 +5,13 @@
 #include <optional>
 #include <string>
 
+// CUDA compatibility
+#ifdef __CUDACC__
+#define HOST_DEVICE __host__ __device__
+#else
+#define HOST_DEVICE
+#endif
+
 namespace puzzle71::core {
 
 struct UInt256 {
@@ -19,9 +26,9 @@ struct UInt256 {
     bool FitsInUint64() const;
     std::uint64_t ToUint64() const;
 
-    UInt256& Add(const UInt256& other);
-    UInt256& AddUint64(std::uint64_t value);
-    UInt256& Sub(const UInt256& other);
+    HOST_DEVICE UInt256& Add(const UInt256& other);
+    HOST_DEVICE UInt256& AddUint64(std::uint64_t value);
+    HOST_DEVICE UInt256& Sub(const UInt256& other);
 
     UInt256 DivUint64(std::uint64_t value, std::uint64_t* remainder = nullptr) const;
     UInt256 SubtractOne() const;

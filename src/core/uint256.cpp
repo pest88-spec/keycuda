@@ -89,7 +89,7 @@ std::uint64_t UInt256::ToUint64() const {
     return limbs[0];
 }
 
-UInt256& UInt256::Add(const UInt256& other) {
+HOST_DEVICE UInt256& UInt256::Add(const UInt256& other) {
     unsigned __int128 carry = 0;
     for (std::size_t i = 0; i < limbs.size(); ++i) {
         unsigned __int128 sum = static_cast<unsigned __int128>(limbs[i]) + other.limbs[i] + carry;
@@ -99,7 +99,7 @@ UInt256& UInt256::Add(const UInt256& other) {
     return *this;
 }
 
-UInt256& UInt256::AddUint64(std::uint64_t value) {
+HOST_DEVICE UInt256& UInt256::AddUint64(std::uint64_t value) {
     unsigned __int128 sum = static_cast<unsigned __int128>(limbs[0]) + value;
     limbs[0] = static_cast<std::uint64_t>(sum);
     unsigned __int128 carry = sum >> 64;
@@ -111,7 +111,7 @@ UInt256& UInt256::AddUint64(std::uint64_t value) {
     return *this;
 }
 
-UInt256& UInt256::Sub(const UInt256& other) {
+HOST_DEVICE UInt256& UInt256::Sub(const UInt256& other) {
     unsigned __int128 borrow = 0;
     for (std::size_t i = 0; i < limbs.size(); ++i) {
         unsigned __int128 minuend = static_cast<unsigned __int128>(limbs[i]);

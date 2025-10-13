@@ -6,7 +6,7 @@
 #include <vector>
 
 #include "config/puzzle71_config.h"
-
+#include "checkpoint_manifest.h"
 #include "core/uint256.h"
 
 namespace puzzle71 {
@@ -48,6 +48,51 @@ public:
 
 private:
     void AppendLuckEntry(const std::string& scalar_hex, const std::string& address);
+
+    // P1-H001: Refactored helper functions
+    struct TargetHashResult {
+        std::array<std::uint32_t, 5> target_hash;
+        std::optional<core::UInt256> parity_scalar_override;
+    };
+    TargetHashResult InitializeTargetHash();
+
+    struct ManifestsResult {
+        std::optional<checkpoint::Manifest> replay_manifest;
+        std::optional<checkpoint::Manifest> resume_manifest;
+        bool resume_consumed;
+    };
+    ManifestsResult InitializeManifests();
+
+    struct KeyspaceResult {
+        core::UInt256 keyspace_start;
+        core::UInt256 keyspace_end;
+    };
+    KeyspaceResult ValidateAndParseKeyspace(const std::optional<checkpoint::Manifest>& replay_manifest);
+
+    std::vector<int> InitializeDeviceList(const std::optional<checkpoint::Manifest>& replay_manifest);
+
+    // P1-H001 Phase 2: Medium complexity functions
+    struct RunMetrics {
+        std::uint64_t total_keys{0};
+        double total_elapsed_ms{0.0};
+        std::uint64_t batches{0};
+        double peak_keys_per_sec{0.0};
+        std::uint64_t dropped_candidates{0};
+    };
+    void PrintSummary(const RunMetrics& metrics,
+                     const std::chrono::steady_clock::time_point& wall_start,
+                     const std::optional<checkpoint::Manifest>& replay_manifest);
+
+    struct SchedulerResult {
+        std::vector<scheduler::Shard> schedule;
+        std::optional<gpu::BatchConfig> deterministic_launch_config;
+        std::optional<std::mt19937_64> deterministic_rng;
+    };
+    SchedulerResult InitializeScheduler(
+        const core::UInt256& keyspace_start,
+        const core::UInt256& keyspace_end,
+        const std::vector<int>& device_ids,
+        const std::optional<checkpoint::Manifest>& replay_manifest);
 
     SolverOptions options_;
     std::vector<ParityRecord> parity_records_;

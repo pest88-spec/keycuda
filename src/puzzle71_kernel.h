@@ -3,7 +3,7 @@
 #include <array>
 #include <cuda_runtime.h>
 
-#include "ComputeCore/gpu/device_results.h"
+#include "compute/gpu/device_results.h"
 #include "core/uint256.h"
 
 namespace puzzle71::kernel {

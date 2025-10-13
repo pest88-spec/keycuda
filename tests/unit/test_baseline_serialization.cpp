@@ -20,7 +20,7 @@
 #include <stdexcept>
 
 // Include the entities and serialization utilities
-#include "KeyhuntCore/utils/json_serializer.h"
+#include "compute/utils/json_serializer.h"
 
 using namespace keyhunt::utils;
 using ::testing::HasSubstr;

@@ -18,7 +18,7 @@ namespace puzzle71::crypto {
 namespace {
 
 #ifdef SECP256K1_AVAILABLE
-secp256k1_context* GetContext() {
+[[maybe_unused]] secp256k1_context* GetContext() {
     static secp256k1_context* ctx = [] {
         secp256k1_context* context = secp256k1_context_create(SECP256K1_CONTEXT_VERIFY);
         return context;
@@ -27,7 +27,7 @@ secp256k1_context* GetContext() {
 }
 #endif
 
-std::array<unsigned char, 32> UInt256ToBytes(const core::UInt256& value) {
+[[maybe_unused]] std::array<unsigned char, 32> UInt256ToBytes(const core::UInt256& value) {
     std::array<unsigned char, 32> out{};
     for (std::size_t i = 0; i < value.limbs.size(); ++i) {
         std::uint64_t limb = value.limbs[i];

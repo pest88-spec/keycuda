@@ -11,12 +11,12 @@
 
 #include <nlohmann/json.hpp>
 
-#include "ComputeCore/adapters/reference/conversions.h"
-#include "ComputeCore/adapters/reference/keyfinder_adapter.h"
-#include "ComputeCore/adapters/reference/gpu_context.h"
-#include "ComputeCore/shards/shard_walker.h"
-#include "ComputeCore/gpu/batch_planner.h"
-#include "ComputeCore/gpu/gpu_executor.h"
+#include "compute/adapters/reference/conversions.h"
+#include "compute/adapters/reference/keyfinder_adapter.h"
+#include "compute/adapters/reference/gpu_context.h"
+#include "compute/shards/shard_walker.h"
+#include "compute/gpu/batch_planner.h"
+#include "compute/gpu/gpu_executor.h"
 #include "puzzle71_kernel.h"
 #include "models/target_constants.h"
 #include "crypto/secp256k1_adapter.h"
@@ -504,7 +504,12 @@ checkpoint::Manifest BuildManifest(std::uint32_t device_id,
     manifest.shard_end = shard_end.ToHex();
     manifest.next_scalar = next_scalar.ToHex();
     manifest.encryption_cipher = "AES-256-GCM";
-    manifest.nonce = "";  // TODO: populate once crypto is implemented.
+
+    // L-004: Generate cryptographically secure 12-byte nonce for AES-256-GCM
+    constexpr std::size_t kNonceLength = 12;  // GCM standard nonce length (96 bits)
+    auto nonce_bytes = GenerateRandomBytes(kNonceLength, deterministic_rng_ptr);
+    manifest.nonce = BytesToHex(nonce_bytes.data(), nonce_bytes.size());
+
     manifest.salt = "";
     manifest.pbkdf2_iterations = 200000;
     manifest.payload_sha256 = "";  // To be populated after encryption/digest.
@@ -561,32 +566,39 @@ std::string FormatPrivateKeyHex(const core::UInt256& scalar) {
     return body;
 }
 
+std::string BytesToHex(const unsigned char* data, std::size_t length) {
+    static constexpr char kHexDigits[] = "0123456789abcdef";
+    std::string out(length * 2, '\0');
+    for (std::size_t i = 0; i < length; ++i) {
+        out[2 * i] = kHexDigits[(data[i] >> 4) & 0x0F];
+        out[2 * i + 1] = kHexDigits[data[i] & 0x0F];
+    }
+    return out;
+}
+
 }  // namespace
 
 Puzzle71Solver::Puzzle71Solver(SolverOptions options) : options_(std::move(options)) {}
 
-void Puzzle71Solver::Run() {
-    // CRITICAL: Do NOT call parity_records_.clear() - causes memory corruption on H20
-    // ParityRecord contains BitCrack Address objects with unsafe destructors
-
-    std::array<std::uint32_t, kDigestWordCount> target_hash = constants::kTargetHash160;
-    std::optional<core::UInt256> parity_scalar_override;
+// P1-H001: Extracted from Run() - Initialize target hash and parity scalar
+Puzzle71Solver::TargetHashResult Puzzle71Solver::InitializeTargetHash() {
+    TargetHashResult result;
+    result.target_hash = constants::kTargetHash160;
+    result.parity_scalar_override = std::nullopt;
 
     // In super mode, compute target hash from provided address (not Puzzle #71 constant)
     if (options_.super_mode && !options_.parity_test_scalar_hex) {
         std::cout << "[super] Computing target hash from address: " << options_.target_address << std::endl;
-        // TODO: Need to decode Base58 address to get Hash160
-        // For now, throw error to indicate this needs implementation
-        // Use Base58::toHash160 to decode target address
+
         if(!Base58::isBase58(options_.target_address)) {
             throw std::runtime_error("Invalid Base58 address: " + options_.target_address);
         }
 
         try {
-            Base58::toHash160(options_.target_address, target_hash.data());
+            Base58::toHash160(options_.target_address, result.target_hash.data());
             std::cout << "[super] Successfully decoded address to HASH160: ";
             for(int i = 0; i < 5; i++) {
-                std::cout << "0x" << std::hex << target_hash[i];
+                std::cout << "0x" << std::hex << result.target_hash[i];
                 if(i < 4) std::cout << " ";
             }
             std::cout << std::dec << std::endl;
@@ -595,34 +607,10 @@ void Puzzle71Solver::Run() {
         }
     }
 
-    std::optional<checkpoint::Manifest> replay_manifest;
-    if (options_.replay_manifest_path) {
-        replay_manifest = checkpoint::LoadManifestFromFile(*options_.replay_manifest_path);
-        if (!replay_manifest) {
-            throw std::runtime_error("Unable to load replay manifest: " + *options_.replay_manifest_path);
-        }
-    }
-
-    std::optional<checkpoint::Manifest> resume_manifest;
-    bool resume_consumed = true;
-    gpu::BatchConfig resume_config{};
-    if (!replay_manifest && options_.resume_manifest_path) {
-        auto manifest = checkpoint::LoadManifestFromFile(*options_.resume_manifest_path);
-        if (!manifest) {
-            throw std::runtime_error("Unable to load resume manifest: " + *options_.resume_manifest_path);
-        }
-        resume_consumed = false;
-        resume_manifest = std::move(manifest);
-    }
-
-    std::unique_ptr<AsyncCheckpointWriter> checkpoint_writer;
-    if (options_.enable_checkpoint) {
-        checkpoint_writer = std::make_unique<AsyncCheckpointWriter>();
-    }
-
+    // Parity test mode: compute target hash from test scalar
     if (options_.parity_test_scalar_hex) {
-        parity_scalar_override = ParseKeyspaceHex(*options_.parity_test_scalar_hex);
-        auto pub = crypto::DerivePublicKey(*parity_scalar_override);
+        result.parity_scalar_override = ParseKeyspaceHex(*options_.parity_test_scalar_hex);
+        auto pub = crypto::DerivePublicKey(*result.parity_scalar_override);
         if (!pub || !pub->valid) {
             throw std::runtime_error("Unable to derive public key for parity test scalar");
         }
@@ -636,19 +624,54 @@ void Puzzle71Solver::Run() {
 
         unsigned int digest_words[5];
         Hash::hashPublicKeyCompressed(point, digest_words);
-        target_hash = DigestArray(digest_words);
+        result.target_hash = DigestArray(digest_words);
 
         // Skip toxic Address::fromPublicKey (H20 memory corruption)
         // Address is already provided via --target-address parameter
 
-        std::cout << "[parity] Override scalar=" << parity_scalar_override->ToHex()
+        std::cout << "[parity] Override scalar=" << result.parity_scalar_override->ToHex()
                   << " address=" << options_.target_address << std::endl;
         std::cout << "[parity] Target HASH160 words:";
-        for (auto word : target_hash) {
+        for (auto word : result.target_hash) {
             std::cout << " 0x" << std::hex << word;
         }
         std::cout << std::dec << std::endl;
     }
+
+    return result;
+}
+
+// P1-H001: Extracted from Run() - Initialize manifests
+Puzzle71Solver::ManifestsResult Puzzle71Solver::InitializeManifests() {
+    ManifestsResult result;
+    result.replay_manifest = std::nullopt;
+    result.resume_manifest = std::nullopt;
+    result.resume_consumed = true;
+
+    // Load replay manifest if specified
+    if (options_.replay_manifest_path) {
+        result.replay_manifest = checkpoint::LoadManifestFromFile(*options_.replay_manifest_path);
+        if (!result.replay_manifest) {
+            throw std::runtime_error("Unable to load replay manifest: " + *options_.replay_manifest_path);
+        }
+    }
+
+    // Load resume manifest if specified (and no replay manifest)
+    if (!result.replay_manifest && options_.resume_manifest_path) {
+        auto manifest = checkpoint::LoadManifestFromFile(*options_.resume_manifest_path);
+        if (!manifest) {
+            throw std::runtime_error("Unable to load resume manifest: " + *options_.resume_manifest_path);
+        }
+        result.resume_consumed = false;
+        result.resume_manifest = std::move(manifest);
+    }
+
+    return result;
+}
+
+// P1-H001: Extracted from Run() - Validate and parse keyspace
+Puzzle71Solver::KeyspaceResult Puzzle71Solver::ValidateAndParseKeyspace(
+    const std::optional<checkpoint::Manifest>& replay_manifest) {
 
     // Security validation (can be bypassed with --super mode for testing)
     if (!options_.super_mode && !options_.parity_test_scalar_hex &&
@@ -659,21 +682,27 @@ void Puzzle71Solver::Run() {
         throw std::runtime_error(oss.str());
     }
 
-    core::UInt256 keyspace_start = ParseKeyspaceHex(options_.keyspace_start_hex);
-    core::UInt256 keyspace_end = ParseKeyspaceHex(options_.keyspace_end_hex);
+    KeyspaceResult result;
+    result.keyspace_start = ParseKeyspaceHex(options_.keyspace_start_hex);
+    result.keyspace_end = ParseKeyspaceHex(options_.keyspace_end_hex);
 
+    // Override with replay manifest if provided
     if (replay_manifest) {
-        keyspace_start = ParseKeyspaceHex(replay_manifest->shard_start);
-        keyspace_end = ParseKeyspaceHex(replay_manifest->shard_end);
+        result.keyspace_start = ParseKeyspaceHex(replay_manifest->shard_start);
+        result.keyspace_end = ParseKeyspaceHex(replay_manifest->shard_end);
     }
-    if (keyspace_start.Compare(keyspace_end) >= 0) {
+
+    // Validate keyspace range
+    if (result.keyspace_start.Compare(result.keyspace_end) >= 0) {
         throw std::runtime_error("Invalid keyspace: start must be < end");
     }
 
+    // Validate keyspace is within authorized Puzzle #71 range
     if (!options_.super_mode && !options_.parity_test_scalar_hex) {
         const auto canonical_start = ParseKeyspaceHex(constants::kDefaultKeyspace.start_hex);
         const auto canonical_end = ParseKeyspaceHex(constants::kDefaultKeyspace.end_hex);
-        if (keyspace_start.Compare(canonical_start) < 0 || keyspace_end.Compare(canonical_end) > 0) {
+        if (result.keyspace_start.Compare(canonical_start) < 0 ||
+            result.keyspace_end.Compare(canonical_end) > 0) {
             throw std::runtime_error("Keyspace outside authorised Puzzle #71 range. Use --super to override.");
         }
     }
@@ -682,20 +711,24 @@ void Puzzle71Solver::Run() {
         std::cout << "[WARNING] Super mode enabled - security restrictions bypassed for testing" << std::endl;
     }
 
-    // Enable register audit for performance debugging
-    if (options_.verbose) {
-        puzzle71::kernel::EnableRegisterAudit(true);
-        DebugLog(options_, "[debug] Register audit enabled for kernel profiling");
-    }
+    return result;
+}
+
+// P1-H001: Extracted from Run() - Initialize device list
+std::vector<int> Puzzle71Solver::InitializeDeviceList(
+    const std::optional<checkpoint::Manifest>& replay_manifest) {
 
     DebugLog(options_, "[debug] Detecting CUDA devices...");
     auto device_ids = options_.device_ids;
     const std::uint32_t available_devices = DetectCudaDeviceCount();
+
     if (options_.verbose) {
         DebugLog(options_, "[debug] Found " + std::to_string(available_devices) + " CUDA device(s)");
     } else {
         std::cout << "[info] CUDA devices available: " << available_devices << std::endl;
     }
+
+    // In replay mode, use only the device from the manifest
     if (replay_manifest) {
         int manifest_device = static_cast<int>(ParseDeviceIdFromShardId(replay_manifest->shard_id));
         if (manifest_device < 0 || manifest_device >= static_cast<int>(available_devices)) {
@@ -708,17 +741,20 @@ void Puzzle71Solver::Run() {
         device_ids.push_back(manifest_device);
     }
 
+    // If no devices specified, use all available devices
     if (device_ids.empty()) {
         device_ids.resize(available_devices);
         std::iota(device_ids.begin(), device_ids.end(), 0);
     } else {
+        // Validate and deduplicate device IDs
         std::vector<int> filtered;
         filtered.reserve(device_ids.size());
         std::unordered_set<int> seen;
         for (int id : device_ids) {
             if (id < 0 || id >= static_cast<int>(available_devices)) {
                 std::ostringstream oss;
-                oss << "Requested CUDA device " << id << " out of range (0-" << (available_devices - 1) << ")";
+                oss << "Requested CUDA device " << id << " out of range (0-"
+                    << (available_devices - 1) << ")";
                 throw std::runtime_error(oss.str());
             }
             if (seen.insert(id).second) {
@@ -732,15 +768,69 @@ void Puzzle71Solver::Run() {
         throw std::runtime_error("No CUDA devices available for scheduling");
     }
 
-    std::optional<gpu::BatchConfig> deterministic_launch_config;
-    std::mt19937_64 deterministic_rng;
-    std::mt19937_64* deterministic_rng_ptr = nullptr;
-    if (options_.replay_config) {
-        deterministic_launch_config = BuildDeterministicBatchConfig(*options_.replay_config);
-        deterministic_rng.seed(options_.replay_config->deterministic_seed);
-        deterministic_rng_ptr = &deterministic_rng;
+    return device_ids;
+}
+
+// P1-H001 Phase 2: Extracted from Run() - Print summary and export metrics
+void Puzzle71Solver::PrintSummary(
+    const RunMetrics& metrics,
+    const std::chrono::steady_clock::time_point& wall_start,
+    const std::optional<checkpoint::Manifest>& replay_manifest) {
+
+    auto wall_end = std::chrono::steady_clock::now();
+    double wall_ms = static_cast<double>(
+        std::chrono::duration_cast<std::chrono::microseconds>(wall_end - wall_start).count()) /
+        1000.0;
+    double avg_rate_wall = wall_ms > 0.0
+                               ? static_cast<double>(metrics.total_keys) * 1000.0 / wall_ms
+                               : 0.0;
+
+    std::cout << "[summary] total=" << FormatKeyCount(metrics.total_keys)
+              << " | batches=" << metrics.batches
+              << " | wall=" << FormatDurationMs(wall_ms)
+              << " | avg=" << FormatKeyRate(avg_rate_wall)
+              << " | peak=" << FormatKeyRate(metrics.peak_keys_per_sec);
+    if (metrics.dropped_candidates > 0) {
+        std::cout << " | dropped=" << FormatKeyCount(metrics.dropped_candidates);
+    }
+    std::cout << std::endl;
+
+    // Export Prometheus metrics if configured
+    if (options_.prometheus_dir) {
+        puzzle71::telemetry::PrometheusOptions prom_opts{*options_.prometheus_dir};
+        puzzle71::telemetry::WritePrometheusSnapshot(prom_opts,
+                                                     "# Puzzle71Solver metrics\n"
+                                                     "puzzle71_last_run_status 1\n");
     }
 
+    // Verify replay manifest digest if in replay mode
+    if (replay_manifest) {
+        auto result = puzzle71::utils::VerifyManifestDigest(*options_.replay_manifest_path, replay_manifest->path);
+        if (result.status != puzzle71::utils::DigestStatus::kOk) {
+            std::cerr << "Replay manifest verification incomplete: " << result.message << std::endl;
+        }
+    }
+
+    // Clear deterministic launch configuration
+    puzzle71::kernel::ClearDeterministicLaunchConfig();
+}
+
+Puzzle71Solver::SchedulerResult Puzzle71Solver::InitializeScheduler(
+    const core::UInt256& keyspace_start,
+    const core::UInt256& keyspace_end,
+    const std::vector<int>& device_ids,
+    const std::optional<checkpoint::Manifest>& replay_manifest) {
+
+    SchedulerResult result;
+
+    // Initialize deterministic configuration and RNG
+    if (options_.replay_config) {
+        result.deterministic_launch_config = BuildDeterministicBatchConfig(*options_.replay_config);
+        result.deterministic_rng.emplace();
+        result.deterministic_rng->seed(options_.replay_config->deterministic_seed);
+    }
+
+    // Process replay manifest configuration
     if (replay_manifest) {
         std::uint64_t seed = options_.replay_config
                                   ? options_.replay_config->deterministic_seed
@@ -752,27 +842,31 @@ void Puzzle71Solver::Run() {
                                              ? 1
                                              : replay_manifest->points_per_thread;
         manifest_cfg.deterministic_seed = seed;
-        if (!deterministic_launch_config) {
-            deterministic_rng.seed(seed);
-            deterministic_rng_ptr = &deterministic_rng;
+
+        if (!result.deterministic_launch_config) {
+            result.deterministic_rng.emplace();
+            result.deterministic_rng->seed(seed);
         }
-        deterministic_launch_config = BuildDeterministicBatchConfig(manifest_cfg);
-        if (replay_manifest->keys_total > 0 && deterministic_launch_config) {
-            deterministic_launch_config->keys_total = replay_manifest->keys_total;
+
+        result.deterministic_launch_config = BuildDeterministicBatchConfig(manifest_cfg);
+        if (replay_manifest->keys_total > 0 && result.deterministic_launch_config) {
+            result.deterministic_launch_config->keys_total = replay_manifest->keys_total;
         }
     }
 
-    if (deterministic_launch_config) {
+    // Set kernel launch configuration
+    if (result.deterministic_launch_config) {
         puzzle71::kernel::KernelLaunchConfig kernel_cfg{};
-        kernel_cfg.grid = deterministic_launch_config->grid;
-        kernel_cfg.block = deterministic_launch_config->block;
-        kernel_cfg.batch_size = deterministic_launch_config->keys_total;
-        kernel_cfg.points_per_thread = deterministic_launch_config->points_per_thread;
+        kernel_cfg.grid = result.deterministic_launch_config->grid;
+        kernel_cfg.block = result.deterministic_launch_config->block;
+        kernel_cfg.batch_size = result.deterministic_launch_config->keys_total;
+        kernel_cfg.points_per_thread = result.deterministic_launch_config->points_per_thread;
         puzzle71::kernel::SetDeterministicLaunchConfig(kernel_cfg);
     } else {
         puzzle71::kernel::ClearDeterministicLaunchConfig();
     }
 
+    // Build schedule
     DebugLog(options_, "[debug] Building schedule for " + std::to_string(device_ids.size()) + " device(s)...");
     std::optional<scheduler::Shard> replay_shard;
     if (replay_manifest) {
@@ -781,44 +875,78 @@ void Puzzle71Solver::Run() {
                                         ParseDeviceIdFromShardId(replay_manifest->shard_id)};
     }
 
-    auto schedule = scheduler::BuildDeterministicSchedule(keyspace_start,
-                                                          keyspace_end,
-                                                          static_cast<std::uint32_t>(device_ids.size()));
+    result.schedule = scheduler::BuildDeterministicSchedule(keyspace_start,
+                                                            keyspace_end,
+                                                            static_cast<std::uint32_t>(device_ids.size()));
     if (options_.verbose) {
-        DebugLog(options_, "[debug] Schedule created with " + std::to_string(schedule.size()) + " shard(s)");
+        DebugLog(options_, "[debug] Schedule created with " + std::to_string(result.schedule.size()) + " shard(s)");
     }
 
-    for (std::size_t i = 0; i < schedule.size() && i < device_ids.size(); ++i) {
-        schedule[i].device_id = static_cast<std::uint32_t>(device_ids[i]);
+    // Assign device IDs to schedule
+    for (std::size_t i = 0; i < result.schedule.size() && i < device_ids.size(); ++i) {
+        result.schedule[i].device_id = static_cast<std::uint32_t>(device_ids[i]);
     }
 
+    // Override with replay shard if provided
     if (replay_shard) {
-        schedule.clear();
-        schedule.push_back(*replay_shard);
+        result.schedule.clear();
+        result.schedule.push_back(*replay_shard);
     }
-    if (schedule.empty()) {
+
+    if (result.schedule.empty()) {
         throw std::runtime_error("Scheduler returned no shards");
     }
+
+    return result;
+}
+
+void Puzzle71Solver::Run() {
+    // CRITICAL: Do NOT call parity_records_.clear() - causes memory corruption on H20
+    // ParityRecord contains BitCrack Address objects with unsafe destructors
+
+    // P1-H001: Initialize target hash (extracted function)
+    auto [target_hash, parity_scalar_override] = InitializeTargetHash();
+
+    // P1-H001: Initialize manifests (extracted function)
+    auto [replay_manifest, resume_manifest, resume_consumed] = InitializeManifests();
+    gpu::BatchConfig resume_config{};
+
+    std::unique_ptr<AsyncCheckpointWriter> checkpoint_writer;
+    if (options_.enable_checkpoint) {
+        checkpoint_writer = std::make_unique<AsyncCheckpointWriter>();
+    }
+
+    // P1-H001: Validate and parse keyspace (extracted function)
+    auto [keyspace_start, keyspace_end] = ValidateAndParseKeyspace(replay_manifest);
+
+    // Enable register audit for performance debugging
+    if (options_.verbose) {
+        puzzle71::kernel::EnableRegisterAudit(true);
+        DebugLog(options_, "[debug] Register audit enabled for kernel profiling");
+    }
+
+    // P1-H001: Initialize device list (extracted function)
+    auto device_ids = InitializeDeviceList(replay_manifest);
+
+    // P1-H001 Phase 2: Initialize scheduler (extracted function)
+    auto scheduler_result = InitializeScheduler(keyspace_start, keyspace_end, device_ids, replay_manifest);
+    std::mt19937_64* deterministic_rng_ptr = scheduler_result.deterministic_rng.has_value()
+        ? &scheduler_result.deterministic_rng.value()
+        : nullptr;
 
     if (options_.dry_run) {
         std::cout << "Dry run: solver execution skipped." << std::endl;
         return;
     }
 
-    struct RunMetrics {
-        std::uint64_t total_keys{0};
-        double total_elapsed_ms{0.0};
-        std::uint64_t batches{0};
-        double peak_keys_per_sec{0.0};
-        std::uint64_t dropped_candidates{0};
-    } metrics;
+    RunMetrics metrics;
 
     auto wall_start = std::chrono::steady_clock::now();
 
     std::cout << "[info] Starting GPU traversal" << std::endl;
     bool target_found = false;
 
-    for (const auto& shard : schedule) {
+    for (const auto& shard : scheduler_result.schedule) {
         DebugLog(options_, "[debug] Processing shard [" + shard.start.ToHex() + " : " + shard.end.ToHex() + "]");
         auto partitions = scan::PartitionKeyspace(shard, /*slices=*/1);
         DebugLog(options_, "[debug] Created " + std::to_string(partitions.size()) + " partition(s)");
@@ -832,12 +960,12 @@ void Puzzle71Solver::Run() {
             auto& planner = context.planner;
             auto& executor = context.executor;
 
-            if (deterministic_launch_config) {
+            if (scheduler_result.deterministic_launch_config) {
                 puzzle71::kernel::KernelLaunchConfig planner_cfg{};
-                planner_cfg.grid = deterministic_launch_config->grid;
-                planner_cfg.block = deterministic_launch_config->block;
-                planner_cfg.batch_size = deterministic_launch_config->keys_total;
-                planner_cfg.points_per_thread = deterministic_launch_config->points_per_thread;
+                planner_cfg.grid = scheduler_result.deterministic_launch_config->grid;
+                planner_cfg.block = scheduler_result.deterministic_launch_config->block;
+                planner_cfg.batch_size = scheduler_result.deterministic_launch_config->keys_total;
+                planner_cfg.points_per_thread = scheduler_result.deterministic_launch_config->points_per_thread;
                 planner.SetDeterministicLaunchConfig(planner_cfg);
             }
 
@@ -854,8 +982,8 @@ void Puzzle71Solver::Run() {
             }
 
             // Adaptive initial batch size based on GPU VRAM
-            std::uint64_t desired_keys_hint = deterministic_launch_config
-                                                   ? deterministic_launch_config->keys_total
+            std::uint64_t desired_keys_hint = scheduler_result.deterministic_launch_config
+                                                   ? scheduler_result.deterministic_launch_config->keys_total
                                                    : (total_vram_mb < 16000 ? 67'108'864ULL :   // <16GB: 64M keys
                                                       total_vram_mb < 32000 ? 134'217'728ULL :  // 16-32GB: 128M keys
                                                       total_vram_mb < 48000 ? 268'435'456ULL :  // 32-48GB: 256M keys
@@ -891,8 +1019,8 @@ void Puzzle71Solver::Run() {
                 if (use_resume_config) {
                     batch_cfg = resume_config;
                     use_resume_config = false;
-                } else if (deterministic_launch_config) {
-                    batch_cfg = AdjustDeterministicBatch(*deterministic_launch_config,
+                } else if (scheduler_result.deterministic_launch_config) {
+                    batch_cfg = AdjustDeterministicBatch(*scheduler_result.deterministic_launch_config,
                                                          walker.Remaining());
                 } else {
                     batch_cfg = planner.Plan(walker, desired_keys_hint);
@@ -1139,39 +1267,8 @@ finalize_traversal:
         return;
     }
 
-    auto wall_end = std::chrono::steady_clock::now();
-    double wall_ms = static_cast<double>(
-        std::chrono::duration_cast<std::chrono::microseconds>(wall_end - wall_start).count()) /
-        1000.0;
-    double avg_rate_wall = wall_ms > 0.0
-                               ? static_cast<double>(metrics.total_keys) * 1000.0 / wall_ms
-                               : 0.0;
-
-    std::cout << "[summary] total=" << FormatKeyCount(metrics.total_keys)
-              << " | batches=" << metrics.batches
-              << " | wall=" << FormatDurationMs(wall_ms)
-              << " | avg=" << FormatKeyRate(avg_rate_wall)
-              << " | peak=" << FormatKeyRate(metrics.peak_keys_per_sec);
-    if (metrics.dropped_candidates > 0) {
-        std::cout << " | dropped=" << FormatKeyCount(metrics.dropped_candidates);
-    }
-    std::cout << std::endl;
-
-    if (options_.prometheus_dir) {
-        puzzle71::telemetry::PrometheusOptions prom_opts{*options_.prometheus_dir};
-        puzzle71::telemetry::WritePrometheusSnapshot(prom_opts,
-                                                     "# Puzzle71Solver metrics\n"
-                                                     "puzzle71_last_run_status 1\n");
-    }
-
-    if (replay_manifest) {
-        auto result = puzzle71::utils::VerifyManifestDigest(*options_.replay_manifest_path, replay_manifest->path);
-        if (result.status != puzzle71::utils::DigestStatus::kOk) {
-            std::cerr << "Replay manifest verification incomplete: " << result.message << std::endl;
-        }
-    }
-
-    puzzle71::kernel::ClearDeterministicLaunchConfig();
+    // P1-H001 Phase 2: Print summary and export metrics (extracted function)
+    PrintSummary(metrics, wall_start, replay_manifest);
 }
 
 void Puzzle71Solver::AppendLuckEntry(const std::string& scalar_hex, const std::string& address) {

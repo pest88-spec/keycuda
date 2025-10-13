@@ -16,8 +16,8 @@
 #include <gtest/gtest.h>
 #include "cuda_test_fixture.h"
 #include "crypto/secp256k1_wrapper.cpp"
-#include "KeyhuntCore/utils/json_serializer.cpp"
-#include "KeyhuntCore/validation/parity_checker.cuh"
+#include "compute/utils/json_serializer.cpp"
+#include "compute/validation/parity_checker.cuh"
 #include <vector>
 #include <cmath>
 #include <fstream>
@@ -299,6 +299,38 @@ TEST_F(CPUGPUParityTest, EdgeCases_InvalidAndBoundaryKeys_HandledCorrectly) {
         }
     }
 
-    // TODO: GPU validation (will be implemented in T024)
-    GTEST_SKIP() << "Edge case GPU validation requires kernel implementation (T024)";
+    // L-003: GPU validation using GLVEndomorphismAdapter
+    // This validates that GPU implementation (via VanitySearch) handles edge cases correctly
+    for (const auto& key : testKeys) {
+        unsigned char gpuPubKeyX[32], gpuPubKeyY[32];
+        bool gpuSuccess = adapter_->computePublicKey(
+            key.data(), gpuPubKeyX, gpuPubKeyY, false);
+
+        if (key[31] == 0) {
+            // Zero key should fail on GPU as well
+            EXPECT_FALSE(gpuSuccess)
+                << "GPU: Private key = 0 should be rejected";
+        } else {
+            // Valid keys should succeed on GPU
+            EXPECT_TRUE(gpuSuccess)
+                << "GPU: Valid private key should be accepted (key[31]="
+                << static_cast<int>(key[31]) << ")";
+
+            // If both CPU and GPU succeeded, verify they match
+            unsigned char cpuPubKey[65];
+            bool cpuSuccess = computePublicKeyCPU(key.data(), cpuPubKey);
+
+            if (cpuSuccess && gpuSuccess) {
+                // Compare X coordinates (first 32 bytes after prefix)
+                EXPECT_EQ(0, std::memcmp(cpuPubKey + 1, gpuPubKeyX, 32))
+                    << "CPU-GPU mismatch for X coordinate (key[31]="
+                    << static_cast<int>(key[31]) << ")";
+
+                // Compare Y coordinates (next 32 bytes)
+                EXPECT_EQ(0, std::memcmp(cpuPubKey + 33, gpuPubKeyY, 32))
+                    << "CPU-GPU mismatch for Y coordinate (key[31]="
+                    << static_cast<int>(key[31]) << ")";
+            }
+        }
+    }
 }
