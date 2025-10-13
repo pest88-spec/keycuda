@@ -20,18 +20,26 @@
 
 static __constant__ void *_LIST_BUF[1];
 static __constant__ unsigned int *_LIST_SIZE[1];
+static __constant__ unsigned int _LIST_MAX_SIZE[1];
 
 
 __device__ void atomicListAdd(void *info, unsigned int size)
 {
 	unsigned int count = atomicAdd(_LIST_SIZE[0], 1);
 
+	// ✅ P0-001 FIX: Add boundary check to prevent buffer overflow
+	// If count exceeds maximum capacity, rollback and return
+	if (count >= _LIST_MAX_SIZE[0]) {
+		atomicSub(_LIST_SIZE[0], 1);  // Rollback the counter
+		return;  // Silently drop the item (buffer is full)
+	}
+
 	unsigned char *ptr = (unsigned char *)(_LIST_BUF[0]) + count * size;
 
 	memcpy(ptr, info, size);
 }
 
-static cudaError_t setListPtr(void *ptr, unsigned int *numResults)
+static cudaError_t setListPtr(void *ptr, unsigned int *numResults, unsigned int maxSize)
 {
 	cudaError_t err = cudaMemcpyToSymbol(_LIST_BUF, &ptr, sizeof(void *));
 
@@ -41,6 +49,13 @@ static cudaError_t setListPtr(void *ptr, unsigned int *numResults)
 
 	err = cudaMemcpyToSymbol(_LIST_SIZE, &numResults, sizeof(unsigned int *));
 
+	if(err) {
+		return err;
+	}
+
+	// ✅ P0-001 FIX: Set maximum capacity constant for boundary checking
+	err = cudaMemcpyToSymbol(_LIST_MAX_SIZE, &maxSize, sizeof(unsigned int));
+
 	return err;
 }
 
@@ -48,6 +63,7 @@ static cudaError_t setListPtr(void *ptr, unsigned int *numResults)
 cudaError_t CudaAtomicList::init(unsigned int itemSize, unsigned int maxItems)
 {
 	_itemSize = itemSize;
+	_maxSize = maxItems;  // ✅ P0-001 FIX: Store maximum capacity
 
 	// The number of results found in the most recent kernel run
 	_countHostPtr = NULL;
@@ -79,7 +95,8 @@ cudaError_t CudaAtomicList::init(unsigned int itemSize, unsigned int maxItems)
 		goto end;
 	}
 
-	err = setListPtr(_devPtr, _countDevPtr);
+	// ✅ P0-001 FIX: Pass maxItems to setListPtr for boundary checking
+	err = setListPtr(_devPtr, _countDevPtr, maxItems);
 
 end:
 	if(err) {

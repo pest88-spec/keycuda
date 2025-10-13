@@ -356,7 +356,12 @@ cudaError_t LaunchFusedKernel(dim3 grid,
         }
     }
 
-    Puzzle71FusedKernel<<<grid, block>>>(points_per_thread, compression);
+    // P1-005 Optimization: Allocate shared memory for optimized readInt/writeInt
+    // Shared memory size = blockDim.x * 8 * sizeof(unsigned int)
+    // Example: 256 threads × 8 words × 4 bytes = 8KB per block
+    size_t sharedMemSize = block.x * 8 * sizeof(unsigned int);
+
+    Puzzle71FusedKernel<<<grid, block, sharedMemSize>>>(points_per_thread, compression);
     return cudaGetLastError();
 }
 
