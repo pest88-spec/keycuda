@@ -820,7 +820,7 @@ void Puzzle71Solver::Run() {
 
     for (const auto& shard : schedule) {
         DebugLog(options_, "[debug] Processing shard [" + shard.start.ToHex() + " : " + shard.end.ToHex() + "]");
-        auto partitions = traversal::PartitionKeyspace(shard, /*slices=*/1);
+        auto partitions = scan::PartitionKeyspace(shard, /*slices=*/1);
         DebugLog(options_, "[debug] Created " + std::to_string(partitions.size()) + " partition(s)");
         for (const auto& partition : partitions) {
                 DebugLog(options_, "[debug] Partition [" + partition.start.ToHex() + " : " + partition.end.ToHex() + "]");

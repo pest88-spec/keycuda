@@ -1,0 +1,16 @@
+/*
+ * Attribution Information
+ *
+ * This file is part of the secp256k1-zkp library.
+ *
+ * Original repository: https://github.com/BlockstreamResearch/secp256k1-zkp
+ * Original commit: Unknown
+ * Extraction date: 2025-10-22
+ *
+ * This file has been extracted and integrated into this project for
+ * simplified build setup. No modifications have been made to the
+ * source code itself.
+ *
+ * SPDX-License-Identifier: MIT
+ */
+

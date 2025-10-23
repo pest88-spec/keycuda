@@ -35,6 +35,16 @@ core::UInt256 FromDeviceWords(const std::uint32_t words[8]) {
     return ::reference_adapter::FromReferenceFormat(value);
 }
 
+core::UInt256 FromDeviceWords64(const std::uint64_t words[4]) {
+    std::uint32_t words32[8];
+    for (int i = 0; i < 4; ++i) {
+        words32[i*2] = static_cast<std::uint32_t>(words[i] >> 32);
+        words32[i*2+1] = static_cast<std::uint32_t>(words[i] & 0xFFFFFFFF);
+    }
+    secp256k1::uint256 value(words32, secp256k1::uint256::BigEndian);
+    return ::reference_adapter::FromReferenceFormat(value);
+}
+
 void FinalizePrivateKey(core::UInt256* out,
                         const core::UInt256& start,
                         std::uint64_t offset) {
@@ -631,8 +641,8 @@ StepResult GpuExecutor::Execute() {
                                      (static_cast<std::uint64_t>(cand.block) * config_.block.x + cand.thread);
         FinalizePrivateKey(&converted.private_key, batch_start_, offset);
 
-        converted.x = FromDeviceWords(cand.x);
-        converted.y = FromDeviceWords(cand.y);
+        converted.x = FromDeviceWords64(cand.x);
+        converted.y = FromDeviceWords64(cand.y);
         converted.is_compressed = cand.compressed != 0;
         for (int j = 0; j < 5; ++j) {
             converted.digest[j] = cand.digest[j];

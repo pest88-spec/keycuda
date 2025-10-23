@@ -5,7 +5,7 @@
 
 #ifdef SECP256K1_AVAILABLE
 extern "C" {
-#include "../../third_party/bitcoin-core-secp256k1/include/secp256k1.h"
+#include "../extracted/secp256k1-zkp/include/secp256k1.h"
 }
 #endif
 

@@ -4,6 +4,7 @@
 #include <cuda_runtime.h>
 
 #include "KeyhuntCore/gpu/device_results.h"
+#include "puzzle71/gpu/types.h"
 #include "core/uint256.h"
 
 namespace puzzle71::kernel {
